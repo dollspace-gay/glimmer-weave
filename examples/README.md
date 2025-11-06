@@ -26,7 +26,9 @@ This directory contains example programs written in Glimmer-Weave, the scripting
 
 ## Running Examples
 
-Currently, Glimmer-Weave can be executed using the Rust interpreter:
+Glimmer-Weave has **three execution engines**, each with different trade-offs:
+
+### 1. Tree-Walking Interpreter (Recommended for Development)
 
 ```rust
 use glimmer_weave::{Lexer, Parser, Evaluator};
@@ -42,12 +44,83 @@ let tokens = lexer.tokenize();
 let mut parser = Parser::new(tokens);
 let ast = parser.parse()?;
 
-// Evaluate
+// Evaluate directly from AST
 let mut evaluator = Evaluator::new();
 let result = evaluator.eval(&ast)?;
 
 println!("{:?}", result);
 ```
+
+**Pros:** Full feature support, easy debugging
+**Cons:** Slower execution, higher memory usage
+
+### 2. Bytecode VM (Recommended for Production)
+
+```rust
+use glimmer_weave::{Lexer, Parser, BytecodeCompiler, VirtualMachine};
+
+let source = std::fs::read_to_string("examples/01_hello_world.gw")?;
+
+// Tokenize and parse (same as interpreter)
+let mut lexer = Lexer::new(&source);
+let tokens = lexer.tokenize();
+let mut parser = Parser::new(tokens);
+let ast = parser.parse()?;
+
+// Compile to bytecode
+let mut compiler = BytecodeCompiler::new();
+let chunk = compiler.compile(&ast)?;
+
+// Execute in VM
+let mut vm = VirtualMachine::new();
+vm.load_chunk(chunk);
+let result = vm.run()?;
+
+println!("{:?}", result);
+```
+
+**Pros:** Fast execution, low memory usage, full feature support
+**Cons:** Less debuggable than interpreter
+
+### 3. Native x86-64 Code Generator (Experimental)
+
+```rust
+use glimmer_weave::{Lexer, Parser, NativeCodegen};
+
+let source = std::fs::read_to_string("examples/01_hello_world.gw")?;
+
+let mut lexer = Lexer::new(&source);
+let tokens = lexer.tokenize();
+let mut parser = Parser::new(tokens);
+let ast = parser.parse()?;
+
+// Generate native assembly
+let mut codegen = NativeCodegen::new();
+codegen.compile(&ast)?;
+let assembly = codegen.to_assembly();
+
+// Write to .s file for assembling
+std::fs::write("output.s", assembly)?;
+```
+
+**Pros:** Fastest execution (compiled to native code)
+**Cons:** Limited feature support (no heap allocation yet), requires assembler/linker
+
+**Feature Comparison:**
+
+| Feature | Interpreter | Bytecode VM | Native Codegen |
+|---------|-------------|-------------|----------------|
+| Variables | ✅ | ✅ | ✅ |
+| Control flow | ✅ | ✅ | ✅ |
+| Functions | ✅ | ✅ | ✅ |
+| Recursion | ✅ | ✅ | ✅ |
+| Tail call optimization | ❌ | ✅ | ✅ |
+| Lists | ✅ | ✅ | ⚠️ Limited |
+| Maps | ✅ | ✅ | ⚠️ Limited |
+| Structs | ✅ | ✅ | ❌ (requires heap) |
+| Pattern matching | ✅ | ✅ | ⚠️ Basic only |
+| Error handling | ✅ | ✅ | ⚠️ Limited |
+| Outcome/Maybe types | ✅ | ✅ | ✅ |
 
 ## Language Features Demonstrated
 
@@ -99,8 +172,13 @@ println!("{:?}", result);
 - Pipelines (`|`)
 - World-Tree queries (`seek where`)
 - Capability requests (`request ... with justification`)
-- Bytecode compilation for structs
-- Native codegen for structs
+- Generics / parametric polymorphism
+- Traits / interfaces
+
+⚠️ **Limited Support**:
+- **Native codegen for structs** - Requires heap allocation runtime (not yet implemented)
+  - Structs work fully in interpreter and bytecode VM
+  - Native codegen emits clear error messages directing users to use interpreter/VM instead
 
 ## Philosophy
 

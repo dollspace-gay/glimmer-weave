@@ -182,6 +182,10 @@ pub enum RuntimeError {
         function_name: String,
         args: Vec<Value>,
     },
+    /// Break statement outside of loop
+    BreakOutsideLoop,
+    /// Continue statement outside of loop
+    ContinueOutsideLoop,
     /// Custom error message
     Custom(String),
     /// Bytecode compilation error
@@ -208,6 +212,8 @@ impl RuntimeError {
             RuntimeError::MatchFailed => "MatchFailed",
             RuntimeError::Return(_) => "Return",
             RuntimeError::TailCall { .. } => "TailCall",
+            RuntimeError::BreakOutsideLoop => "BreakOutsideLoop",
+            RuntimeError::ContinueOutsideLoop => "ContinueOutsideLoop",
             RuntimeError::Custom(_) => "CustomError",
             RuntimeError::CompileError { .. } => "CompileError",
         }
@@ -242,6 +248,8 @@ impl RuntimeError {
             RuntimeError::CompileError { message } => Value::Text(message.clone()),
             RuntimeError::Return(val) => val.clone(),
             RuntimeError::TailCall { function_name, .. } => Value::Text(format!("Tail call to {}", function_name)),
+            RuntimeError::BreakOutsideLoop => Value::Text("Cannot use 'break' outside of a loop".to_string()),
+            RuntimeError::ContinueOutsideLoop => Value::Text("Cannot use 'continue' outside of a loop".to_string()),
         }
     }
 }
@@ -543,7 +551,27 @@ impl Evaluator {
                 for item in items {
                     self.environment.push_scope();
                     self.environment.define(variable.clone(), item);
-                    result = self.eval(body)?;
+
+                    // Handle break/continue control flow
+                    match self.eval(body) {
+                        Ok(val) => result = val,
+                        Err(RuntimeError::BreakOutsideLoop) => {
+                            // Break exits the loop immediately
+                            self.environment.pop_scope();
+                            break;
+                        }
+                        Err(RuntimeError::ContinueOutsideLoop) => {
+                            // Continue skips to next iteration
+                            self.environment.pop_scope();
+                            continue;
+                        }
+                        Err(e) => {
+                            // All other errors propagate up
+                            self.environment.pop_scope();
+                            return Err(e);
+                        }
+                    }
+
                     self.environment.pop_scope();
                 }
                 Ok(result)
@@ -557,7 +585,23 @@ impl Evaluator {
                     if !cond_val.is_truthy() {
                         break;
                     }
-                    result = self.eval(body)?;
+
+                    // Handle break/continue control flow
+                    match self.eval(body) {
+                        Ok(val) => result = val,
+                        Err(RuntimeError::BreakOutsideLoop) => {
+                            // Break exits the loop immediately
+                            break;
+                        }
+                        Err(RuntimeError::ContinueOutsideLoop) => {
+                            // Continue re-evaluates the condition (next iteration)
+                            continue;
+                        }
+                        Err(e) => {
+                            // All other errors propagate up
+                            return Err(e);
+                        }
+                    }
                 }
                 Ok(result)
             }
@@ -704,6 +748,15 @@ impl Evaluator {
                 // Not a tail call, evaluate normally
                 let val = self.eval_node(value)?;
                 Err(RuntimeError::Return(val))
+            }
+
+            // === Loop Control Flow ===
+            AstNode::Break => {
+                Err(RuntimeError::BreakOutsideLoop)
+            }
+
+            AstNode::Continue => {
+                Err(RuntimeError::ContinueOutsideLoop)
             }
 
             // === Binary Operations ===

@@ -272,6 +272,12 @@ pub enum AstNode {
 
     /// Block of statements
     Block(Vec<AstNode>),
+
+    /// Break statement: exits innermost loop
+    Break,
+
+    /// Continue statement: skip to next iteration of innermost loop
+    Continue,
 }
 
 /// Binary operators

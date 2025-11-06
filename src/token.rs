@@ -54,6 +54,10 @@ pub enum Token {
     Range,
     /// `whilst` - Unbounded loop keyword (while)
     Whilst,
+    /// `break` - Exit loop statement
+    Break,
+    /// `continue` - Skip to next iteration
+    Continue,
 
     /// `chant` - Function declaration
     Chant,
@@ -291,6 +295,8 @@ impl Token {
             Token::In => "in",
             Token::Range => "range",
             Token::Whilst => "whilst",
+            Token::Break => "break",
+            Token::Continue => "continue",
             Token::Chant => "chant",
             Token::Yield => "yield",
             Token::Form => "form",

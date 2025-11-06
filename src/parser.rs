@@ -117,6 +117,8 @@ impl Parser {
             Token::Form => self.parse_form_def(),
             Token::Variant => self.parse_variant_def(),
             Token::Yield => self.parse_yield(),
+            Token::Break => self.parse_break(),
+            Token::Continue => self.parse_continue(),
             Token::Match => self.parse_match(),
             Token::Attempt => self.parse_attempt(),
             Token::Request => self.parse_request(),
@@ -641,6 +643,18 @@ impl Parser {
         let value = Box::new(self.parse_expression()?);
 
         Ok(AstNode::YieldStmt { value })
+    }
+
+    /// Parse: break
+    fn parse_break(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Break)?;
+        Ok(AstNode::Break)
+    }
+
+    /// Parse: continue
+    fn parse_continue(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Continue)?;
+        Ok(AstNode::Continue)
     }
 
     /// Parse: match x with when pattern then ... end

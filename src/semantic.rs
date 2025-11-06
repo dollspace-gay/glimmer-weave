@@ -696,6 +696,16 @@ impl SemanticAnalyzer {
                 self.analyze_node(value)
             }
 
+            AstNode::Break => {
+                // TODO: Check if we're inside a loop
+                Type::Nothing
+            }
+
+            AstNode::Continue => {
+                // TODO: Check if we're inside a loop
+                Type::Nothing
+            }
+
             // === Control Flow ===
             AstNode::IfStmt { condition, then_branch, else_branch } => {
                 let cond_type = self.analyze_node(condition);

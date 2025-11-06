@@ -335,6 +335,8 @@ impl Lexer {
             "in" => Token::In,
             "range" => Token::Range,
             "whilst" => Token::Whilst,
+            "break" => Token::Break,
+            "continue" => Token::Continue,
             "chant" => Token::Chant,
             "yield" => Token::Yield,
             "form" => Token::Form,

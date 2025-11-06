@@ -115,6 +115,7 @@ impl Parser {
             Token::Whilst => self.parse_while(),
             Token::Chant => self.parse_chant_def(),
             Token::Form => self.parse_form_def(),
+            Token::Variant => self.parse_variant_def(),
             Token::Yield => self.parse_yield(),
             Token::Match => self.parse_match(),
             Token::Attempt => self.parse_attempt(),
@@ -501,6 +502,138 @@ impl Parser {
         })
     }
 
+    /// Parse: variant Color then Red, Green, Blue end
+    /// or with data: variant Message then Quit, Move(x: Number, y: Number) end
+    /// or with generics: variant Option<T> then Some(value: T), None end
+    fn parse_variant_def(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Variant)?;
+
+        let name = match self.current() {
+            Token::Ident(n) => n.clone(),
+            _ => {
+                return Err(ParseError {
+                    message: "Expected identifier after 'variant'".to_string(),
+                    position: self.position,
+                })
+            }
+        };
+        self.advance();
+
+        // Parse optional generic type parameters: <T, U>
+        let type_params = if matches!(self.current(), Token::LeftAngle) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+
+            loop {
+                match self.current() {
+                    Token::Ident(param_name) => {
+                        params.push(param_name.clone());
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected type parameter name".to_string(),
+                            position: self.position,
+                        })
+                    }
+                }
+            }
+
+            self.expect(Token::RightAngle)?;
+            params
+        } else {
+            Vec::new() // No generic type parameters
+        };
+
+        self.expect(Token::Then)?;
+        self.skip_newlines();
+
+        let mut variants = Vec::new();
+        while !matches!(self.current(), Token::End | Token::Eof) {
+            // Parse variant case: Name or Name(field1: Type1, field2: Type2)
+            let variant_name = match self.current() {
+                Token::Ident(n) => n.clone(),
+                _ => {
+                    return Err(ParseError {
+                        message: "Expected variant name in enum definition".to_string(),
+                        position: self.position,
+                    })
+                }
+            };
+            self.advance();
+
+            // Check for fields in parentheses
+            let fields = if matches!(self.current(), Token::LeftParen) {
+                self.advance(); // consume (
+                let mut variant_fields = Vec::new();
+
+                while !matches!(self.current(), Token::RightParen | Token::Eof) {
+                    // Parse field: name: Type
+                    let field_name = match self.current() {
+                        Token::Ident(n) => n.clone(),
+                        _ => {
+                            return Err(ParseError {
+                                message: "Expected field name in variant".to_string(),
+                                position: self.position,
+                            })
+                        }
+                    };
+                    self.advance();
+
+                    self.expect(Token::Colon)?;
+
+                    let field_type = self.parse_type_annotation()?;
+
+                    variant_fields.push(Parameter {
+                        name: field_name,
+                        typ: Some(field_type),
+                    });
+
+                    // Handle comma separator
+                    if matches!(self.current(), Token::Comma) {
+                        self.advance();
+                    } else if !matches!(self.current(), Token::RightParen) {
+                        return Err(ParseError {
+                            message: "Expected ',' or ')' in variant field list".to_string(),
+                            position: self.position,
+                        });
+                    }
+                }
+
+                self.expect(Token::RightParen)?;
+                variant_fields
+            } else {
+                Vec::new() // Unit variant (no fields)
+            };
+
+            variants.push(VariantCase {
+                name: variant_name,
+                fields,
+            });
+
+            // Handle comma separator between variants (optional)
+            if matches!(self.current(), Token::Comma) {
+                self.advance();
+            }
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::End)?;
+
+        Ok(AstNode::VariantDef {
+            name,
+            type_params,
+            variants,
+        })
+    }
+
     /// Parse: yield result
     fn parse_yield(&mut self) -> ParseResult<AstNode> {
         self.expect(Token::Yield)?;
@@ -580,7 +713,61 @@ impl Parser {
             Token::Ident(name) => {
                 let n = name.clone();
                 self.advance();
-                Ok(Pattern::Ident(n))
+
+                // Phase 2: Check if this is a variant pattern with fields: Ident(pattern, ...)
+                if self.match_token(Token::LeftParen) {
+                    // Parse inner patterns for field extraction
+                    let mut inner_patterns = Vec::new();
+
+                    // Parse first pattern
+                    if !matches!(self.current(), Token::RightParen) {
+                        inner_patterns.push(self.parse_pattern()?);
+
+                        // Parse additional patterns separated by commas
+                        while self.match_token(Token::Comma) {
+                            inner_patterns.push(self.parse_pattern()?);
+                        }
+                    }
+
+                    self.expect(Token::RightParen)?;
+
+                    // For multiple fields, wrap in a tuple-like structure
+                    // For now, we'll encode multiple patterns as nested Enum patterns
+                    // The innermost pattern will be the last field, working backwards
+                    if inner_patterns.is_empty() {
+                        // No fields - unit variant pattern
+                        Ok(Pattern::Enum {
+                            variant: n,
+                            inner: None,
+                        })
+                    } else if inner_patterns.len() == 1 {
+                        // Single field - simple case
+                        Ok(Pattern::Enum {
+                            variant: n,
+                            inner: Some(Box::new(inner_patterns.into_iter().next().unwrap())),
+                        })
+                    } else {
+                        // Multiple fields - we need a way to represent this
+                        // For now, we'll create a special marker using a list literal pattern
+                        // This is a workaround until we add a proper Tuple pattern type
+                        Ok(Pattern::Enum {
+                            variant: n,
+                            inner: Some(Box::new(Pattern::Literal(
+                                AstNode::List(
+                                    inner_patterns.into_iter()
+                                        .map(|p| match p {
+                                            Pattern::Ident(name) => AstNode::Ident(name),
+                                            _ => AstNode::Nothing, // Placeholder
+                                        })
+                                        .collect()
+                                )
+                            ))),
+                        })
+                    }
+                } else {
+                    // Just an identifier pattern
+                    Ok(Pattern::Ident(n))
+                }
             }
 
             // Enum patterns

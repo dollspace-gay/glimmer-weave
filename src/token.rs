@@ -62,6 +62,8 @@ pub enum Token {
 
     /// `form` - Struct/type declaration
     Form,
+    /// `variant` - Enum/ADT declaration
+    Variant,
 
     /// `seek` - Query/search keyword
     Seek,
@@ -223,6 +225,7 @@ impl Token {
                 | Token::Chant
                 | Token::Yield
                 | Token::Form
+                | Token::Variant
                 | Token::Seek
                 | Token::Where
                 | Token::By
@@ -262,6 +265,7 @@ impl Token {
                 | Token::Whilst
                 | Token::Chant
                 | Token::Form
+                | Token::Variant
                 | Token::Seek
                 | Token::Attempt
                 | Token::Match
@@ -290,6 +294,7 @@ impl Token {
             Token::Chant => "chant",
             Token::Yield => "yield",
             Token::Form => "form",
+            Token::Variant => "variant",
             Token::Seek => "seek",
             Token::Where => "where",
             Token::By => "by",

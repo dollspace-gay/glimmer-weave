@@ -53,6 +53,20 @@ pub struct StructField {
     pub typ: TypeAnnotation,
 }
 
+/// Enum variant case definition
+///
+/// Represents a single case in an enum variant definition.
+/// Can be a simple unit variant (no fields) or carry data (fields).
+///
+/// Examples:
+/// - `Red` - unit variant (fields is empty)
+/// - `Move(x: Number, y: Number)` - variant with data
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariantCase {
+    pub name: String,
+    pub fields: Vec<Parameter>,  // Fields if this variant carries data
+}
+
 impl Parameter {
     /// Create a parameter without type annotation (for backward compatibility)
     pub fn untyped(name: String) -> Self {
@@ -127,6 +141,15 @@ pub enum AstNode {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T", "U"]
         fields: Vec<StructField>,
+    },
+
+    /// Enum definition: `variant Color then Red, Green, Blue end`
+    /// or with data: `variant Message then Quit, Move(x: Number, y: Number) end`
+    /// or with generics: `variant Option<T> then Some(value: T), None end`
+    VariantDef {
+        name: String,
+        type_params: Vec<String>,  // Generic type parameters like ["T"]
+        variants: Vec<VariantCase>,
     },
 
     /// Return statement: `yield result`
@@ -344,6 +367,8 @@ impl AstNode {
                 | AstNode::ForStmt { .. }
                 | AstNode::WhileStmt { .. }
                 | AstNode::ChantDef { .. }
+                | AstNode::FormDef { .. }
+                | AstNode::VariantDef { .. }
                 | AstNode::YieldStmt { .. }
                 | AstNode::MatchStmt { .. }
                 | AstNode::AttemptStmt { .. }

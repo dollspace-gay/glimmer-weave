@@ -70,6 +70,30 @@ pub enum Value {
         struct_name: String,
         fields: BTreeMap<String, Value>,
     },
+    /// Enum definition - represents an enum type (Phase 1, extended Phase 3)
+    VariantDef {
+        name: String,
+        type_params: Vec<String>,  // Generic type parameters (Phase 3)
+        variants: Vec<crate::ast::VariantCase>,
+    },
+    /// Enum variant value - represents an instance of an enum variant (Phase 1, extended Phase 3)
+    /// For simple enums: VariantValue { enum_name: "Color", variant_name: "Red", fields: [], type_args: [] }
+    /// For enums with data (Phase 2): VariantValue { enum_name: "Message", variant_name: "Move", fields: [10, 20], type_args: [] }
+    /// For generic enums (Phase 3): VariantValue { enum_name: "Option", variant_name: "Some", fields: [42], type_args: ["Number"] }
+    VariantValue {
+        enum_name: String,
+        variant_name: String,
+        fields: Vec<Value>,  // Empty for unit variants, filled for data variants (Phase 2)
+        type_args: Vec<String>,  // Type arguments for generic enums (Phase 3)
+    },
+    /// Variant constructor - callable function that creates variant values (Phase 2, extended Phase 3)
+    /// When called with arguments, creates a VariantValue with those arguments as fields
+    VariantConstructor {
+        enum_name: String,
+        variant_name: String,
+        field_params: Vec<crate::ast::Parameter>,  // Field definitions from the variant
+        type_params: Vec<String>,  // Generic type parameters (Phase 3)
+    },
 }
 
 impl Value {
@@ -102,6 +126,9 @@ impl Value {
             Value::Maybe { present, .. } => if *present { "Present" } else { "Absent" },
             Value::StructDef { name, .. } => return name.as_str(),
             Value::StructInstance { struct_name, .. } => return struct_name.as_str(),
+            Value::VariantDef { name, .. } => return name.as_str(),
+            Value::VariantValue { variant_name, .. } => return variant_name.as_str(),
+            Value::VariantConstructor { variant_name, .. } => return variant_name.as_str(),
         }
     }
 }
@@ -317,6 +344,11 @@ impl Evaluator {
         }
 
         evaluator
+    }
+
+    /// Get a reference to the environment
+    pub fn environment(&self) -> &Environment {
+        &self.environment
     }
 
     /// Evaluate a list of statements (program or block)
@@ -572,6 +604,44 @@ impl Evaluator {
                 Ok(struct_def)
             }
 
+            AstNode::VariantDef { name, type_params, variants } => {
+                // Phase 1b/3: Create enum definition and register variant constructors
+
+                // Create and store enum definition
+                let variant_def = Value::VariantDef {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    variants: variants.clone(),
+                };
+                self.environment.define(name.clone(), variant_def.clone());
+
+                // Register each variant as a constructor
+                for variant in variants {
+                    if variant.fields.is_empty() {
+                        // Unit variant (Phase 1): register as a direct value
+                        // For generic enums, unit variants don't carry type info directly
+                        let variant_value = Value::VariantValue {
+                            enum_name: name.clone(),
+                            variant_name: variant.name.clone(),
+                            fields: Vec::new(),
+                            type_args: Vec::new(),  // Phase 3: Empty for now, will be filled on use
+                        };
+                        self.environment.define(variant.name.clone(), variant_value);
+                    } else {
+                        // Variant with data (Phase 2/3): create a constructor function
+                        let constructor = Value::VariantConstructor {
+                            enum_name: name.clone(),
+                            variant_name: variant.name.clone(),
+                            field_params: variant.fields.clone(),
+                            type_params: type_params.clone(),  // Phase 3: Store type params
+                        };
+                        self.environment.define(variant.name.clone(), constructor);
+                    }
+                }
+
+                Ok(variant_def)
+            }
+
             AstNode::StructLiteral { struct_name, fields: field_values, .. } => {
                 // Look up the struct definition
                 let struct_def = self.environment.get(struct_name)?;
@@ -650,11 +720,19 @@ impl Evaluator {
             }
 
             // === Function Calls ===
-            AstNode::Call { callee, args, .. } => {
+            AstNode::Call { callee, args, type_args } => {
                 let func = self.eval_node(callee)?;
                 let arg_vals: Result<Vec<Value>, RuntimeError> =
                     args.iter().map(|arg| self.eval_node(arg)).collect();
                 let arg_vals = arg_vals?;
+
+                // Convert type annotations to strings for Phase 3
+                let type_arg_names: Vec<String> = type_args.iter()
+                    .map(|ta| match ta {
+                        crate::ast::TypeAnnotation::Named(n) => n.clone(),
+                        _ => "Unknown".to_string(),
+                    })
+                    .collect();
 
                 match func {
                     Value::Chant { params, body, closure: _ } => {
@@ -724,6 +802,34 @@ impl Evaluator {
 
                         // Call native function
                         (native_fn.func)(&arg_vals)
+                    }
+                    Value::VariantConstructor { enum_name, variant_name, field_params, type_params } => {
+                        // Phase 2/3: Create a variant value with the provided arguments
+                        if field_params.len() != arg_vals.len() {
+                            return Err(RuntimeError::ArityMismatch {
+                                expected: field_params.len(),
+                                got: arg_vals.len(),
+                            });
+                        }
+
+                        // Phase 3: Check type argument count for generic enums
+                        if !type_params.is_empty() && !type_arg_names.is_empty() {
+                            if type_params.len() != type_arg_names.len() {
+                                return Err(RuntimeError::Custom(format!(
+                                    "Type argument mismatch: expected {} type arguments, got {}",
+                                    type_params.len(),
+                                    type_arg_names.len()
+                                )));
+                            }
+                        }
+
+                        // Create the variant value with the arguments as fields
+                        Ok(Value::VariantValue {
+                            enum_name,
+                            variant_name,
+                            fields: arg_vals,
+                            type_args: type_arg_names,  // Phase 3: Store type arguments
+                        })
                     }
                     _ => Err(RuntimeError::NotCallable(func.type_name().to_string())),
                 }
@@ -908,7 +1014,21 @@ impl Evaluator {
             }
 
             // Variable binding pattern - matches anything and binds
+            // BUT: if the value is a variant, check if we're trying to match a variant name (Phase 1c)
             Pattern::Ident(name) => {
+                // Check if this is actually a variant match attempt
+                if let Value::VariantValue { variant_name, .. } = value {
+                    // If the pattern name matches the variant name, it's a variant match
+                    if name == variant_name {
+                        return Ok(Some(Vec::new()));
+                    } else {
+                        // Pattern name doesn't match variant - this pattern fails
+                        // (We don't bind variant values to variables unless explicitly using a lowercase name)
+                        return Ok(None);
+                    }
+                }
+
+                // For non-variant values, it's a variable binding
                 Ok(Some(vec![(name.clone(), value.clone())]))
             }
 
@@ -917,8 +1037,56 @@ impl Evaluator {
                 Ok(Some(Vec::new()))
             }
 
-            // Enum pattern - matches Outcome or Maybe variants
+            // Enum pattern - matches Outcome, Maybe, or user-defined variants
             Pattern::Enum { variant, inner } => {
+                // First check if it's a user-defined variant
+                if let Value::VariantValue { variant_name: vname, fields, .. } = value {
+                    if variant.as_str() == vname {
+                        // Variant name matches!
+                        if fields.is_empty() {
+                            // Phase 1c: Unit variant (no fields)
+                            if inner.is_none() {
+                                return Ok(Some(Vec::new()));
+                            } else {
+                                // Error: trying to match pattern on unit variant
+                                return Ok(None);
+                            }
+                        } else {
+                            // Phase 2: Variant with fields - extract and bind them
+                            if let Some(inner_pattern) = inner {
+                                // Check if this is a multi-field pattern (encoded as List)
+                                if let Pattern::Literal(AstNode::List(ref field_names)) = **inner_pattern {
+                                    // Multiple fields - bind each one
+                                    if field_names.len() != fields.len() {
+                                        return Ok(None); // Field count mismatch
+                                    }
+
+                                    let mut bindings = Vec::new();
+                                    for (name_node, field_value) in field_names.iter().zip(fields.iter()) {
+                                        if let AstNode::Ident(name) = name_node {
+                                            bindings.push((name.clone(), field_value.clone()));
+                                        }
+                                    }
+                                    return Ok(Some(bindings));
+                                } else {
+                                    // Single field - match it against the inner pattern
+                                    if fields.len() != 1 {
+                                        return Ok(None); // Expecting 1 field but got different count
+                                    }
+
+                                    return self.pattern_matches(inner_pattern, &fields[0]);
+                                }
+                            } else {
+                                return Ok(None); // Need inner pattern for data variants
+                            }
+                        }
+                    } else {
+                        // Variant name doesn't match
+                        return Ok(None);
+                    }
+                }
+
+                // Fall back to built-in enum patterns (Outcome/Maybe)
                 match (variant.as_str(), value) {
                     // Match Triumph(x)
                     ("Triumph", Value::Outcome { success: true, value: inner_value }) => {

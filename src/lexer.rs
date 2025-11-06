@@ -338,6 +338,7 @@ impl Lexer {
             "chant" => Token::Chant,
             "yield" => Token::Yield,
             "form" => Token::Form,
+            "variant" => Token::Variant,
             "seek" => Token::Seek,
             "where" => Token::Where,
             "by" => Token::By,

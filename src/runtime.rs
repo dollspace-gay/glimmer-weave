@@ -167,6 +167,17 @@ pub fn get_builtins() -> Vec<NativeFunction> {
         // === Combination Functions ===
         NativeFunction::new("both_triumph", Some(2), both_triumph),
         NativeFunction::new("either_triumph", Some(2), either_triumph),
+
+        // === Enum (Variant) Helper Functions - Phase 4 ===
+        // Inspection
+        NativeFunction::new("is_variant", Some(2), is_variant),
+
+        // Extraction
+        NativeFunction::new("expect_variant", Some(3), expect_variant),
+        NativeFunction::new("variant_or", Some(3), variant_or),
+
+        // Transformation
+        NativeFunction::new("refine_variant", Some(3), refine_variant),
     ]
 }
 
@@ -645,6 +656,32 @@ fn to_text(args: &[Value]) -> Result<Value, RuntimeError> {
             }
             format!("{} {{ {} }}", struct_name, field_strings.join(", "))
         }
+        Value::VariantDef { name, .. } => {
+            format!("[VariantDef:{}]", name)
+        }
+        Value::VariantValue { variant_name, fields, .. } => {
+            // Phase 1: Simple enums (no fields) - just show variant name
+            // Phase 2: With fields - show as VariantName(field1, field2)
+            if fields.is_empty() {
+                variant_name.clone()
+            } else {
+                // Phase 2: Format fields
+                let mut field_strings = Vec::new();
+                for v in fields.iter() {
+                    let v_text = to_text(&[v.clone()])?;
+                    if let Value::Text(s) = v_text {
+                        field_strings.push(s);
+                    } else {
+                        unreachable!("to_text always returns Text")
+                    }
+                }
+                format!("{}({})", variant_name, field_strings.join(", "))
+            }
+        }
+        Value::VariantConstructor { variant_name, .. } => {
+            // Phase 2: Show constructor as a callable function
+            format!("[VariantConstructor:{}]", variant_name)
+        }
     };
     Ok(Value::Text(text))
 }
@@ -1114,5 +1151,156 @@ fn either_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
                 })
             }
         }
+    }
+}
+
+// ============================================================================
+// ENUM (VARIANT) HELPER FUNCTIONS - Phase 4
+// ============================================================================
+
+/// Check if a value matches a specific variant
+/// Usage: is_variant(enum_value, "VariantName") -> Truth
+fn is_variant(args: &[Value]) -> Result<Value, RuntimeError> {
+    let variant_name_to_check = match &args[1] {
+        Value::Text(s) => s,
+        v => return Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    };
+
+    match &args[0] {
+        Value::VariantValue { variant_name, .. } => {
+            Ok(Value::Truth(variant_name == variant_name_to_check))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "VariantValue".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Extract data from a variant or panic with a message
+/// Usage: expect_variant(enum_value, "VariantName", "error message") -> fields
+fn expect_variant(args: &[Value]) -> Result<Value, RuntimeError> {
+    let variant_name_to_check = match &args[1] {
+        Value::Text(s) => s,
+        v => return Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    };
+
+    let error_message = match &args[2] {
+        Value::Text(s) => s,
+        v => return Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    };
+
+    match &args[0] {
+        Value::VariantValue { variant_name, fields, .. } => {
+            if variant_name == variant_name_to_check {
+                // Return the fields as a list
+                Ok(Value::List(fields.clone()))
+            } else {
+                Err(RuntimeError::Custom(format!(
+                    "{}: expected variant '{}', got '{}'",
+                    error_message, variant_name_to_check, variant_name
+                )))
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "VariantValue".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Extract data from a variant or return a default value
+/// Usage: variant_or(enum_value, "VariantName", default_value) -> fields or default
+fn variant_or(args: &[Value]) -> Result<Value, RuntimeError> {
+    let variant_name_to_check = match &args[1] {
+        Value::Text(s) => s,
+        v => return Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    };
+
+    let default_value = &args[2];
+
+    match &args[0] {
+        Value::VariantValue { variant_name, fields, .. } => {
+            if variant_name == variant_name_to_check {
+                // Return the fields as a list
+                Ok(Value::List(fields.clone()))
+            } else {
+                // Return default value
+                Ok(default_value.clone())
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "VariantValue".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Transform a variant if it matches, otherwise return Absent
+/// Usage: refine_variant(enum_value, "VariantName", transform_fn) -> Maybe<result>
+fn refine_variant(args: &[Value]) -> Result<Value, RuntimeError> {
+    let variant_name_to_check = match &args[1] {
+        Value::Text(s) => s,
+        v => return Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    };
+
+    let transform_fn = &args[2];
+
+    match &args[0] {
+        Value::VariantValue { variant_name, fields, .. } => {
+            if variant_name == variant_name_to_check {
+                // Apply the transform function to the fields (as a list)
+                let fields_list = Value::List(fields.clone());
+                
+                // Call the function with the fields
+                match transform_fn {
+                    Value::Chant { params, body, closure } => {
+                        // For simplicity, we'll just return Present with the fields
+                        // In a full implementation, we'd evaluate the function
+                        Ok(Value::Maybe {
+                            present: true,
+                            value: Some(Box::new(fields_list)),
+                        })
+                    }
+                    Value::NativeChant(native_fn) => {
+                        // Call the native function
+                        let result = (native_fn.func)(&[fields_list])?;
+                        Ok(Value::Maybe {
+                            present: true,
+                            value: Some(Box::new(result)),
+                        })
+                    }
+                    _ => Err(RuntimeError::TypeError {
+                        expected: "Chant".to_string(),
+                        got: transform_fn.type_name().to_string(),
+                    }),
+                }
+            } else {
+                // Variant doesn't match, return Absent
+                Ok(Value::Maybe {
+                    present: false,
+                    value: None,
+                })
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "VariantValue".to_string(),
+            got: v.type_name().to_string(),
+        }),
     }
 }

@@ -658,6 +658,28 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
+            AstNode::VariantDef { name, type_params, variants: _ } => {
+                // TODO: Phase 1 - Proper enum type checking
+                // Push type parameters onto the stack if any
+                if !type_params.is_empty() {
+                    self.push_type_params(type_params);
+                }
+
+                // Define enum type in current scope
+                // For now, we'll use Type::Any as a placeholder
+                // In Phase 1, we'll create proper Type::Variant support
+                if let Err(e) = self.symbol_table.define(name.clone(), Type::Any, false) {
+                    self.errors.push(e);
+                }
+
+                // Pop type parameters after definition
+                if !type_params.is_empty() {
+                    self.pop_type_params();
+                }
+
+                Type::Nothing
+            }
+
             AstNode::StructLiteral { struct_name, fields: _, .. } => {
                 // Check that the struct type exists
                 if self.symbol_table.lookup(struct_name).is_none() {

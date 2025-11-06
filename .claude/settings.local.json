@@ -12,7 +12,9 @@
       "Bash(cargo test:*)",
       "Bash(1)",
       "Bash(bd view:*)",
-      "Bash(bd show:*)"
+      "Bash(bd show:*)",
+      "Bash(cargo build:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

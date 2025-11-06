@@ -68,7 +68,7 @@ pub mod type_inference;
 // Re-export commonly used types
 pub use token::{Token, Span};
 pub use lexer::Lexer;
-pub use ast::{AstNode, BinaryOperator, UnaryOperator, TypeAnnotation, Parameter};
+pub use ast::{AstNode, BinaryOperator, UnaryOperator, TypeAnnotation, Parameter, VariantCase};
 pub use parser::{Parser, ParseError, ParseResult};
 pub use eval::{Value, RuntimeError, Environment, Evaluator};
 pub use codegen::{CodeGen, Instruction, Register, compile_to_asm};

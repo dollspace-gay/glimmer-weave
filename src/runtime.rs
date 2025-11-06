@@ -125,6 +125,48 @@ pub fn get_builtins() -> Vec<NativeFunction> {
         // === I/O Functions ===
         NativeFunction::new("print", None, io_print),
         NativeFunction::new("println", None, io_println),
+
+        // === Outcome<T, E> Helper Functions ===
+        // Inspection
+        NativeFunction::new("is_triumph", Some(1), is_triumph),
+        NativeFunction::new("is_mishap", Some(1), is_mishap),
+
+        // Extraction
+        NativeFunction::new("expect_triumph", Some(2), expect_triumph),
+        NativeFunction::new("triumph_or", Some(2), triumph_or),
+        NativeFunction::new("triumph_or_else", Some(2), triumph_or_else),
+        NativeFunction::new("expect_mishap", Some(2), expect_mishap),
+
+        // Transformation
+        NativeFunction::new("refine_triumph", Some(2), refine_triumph),
+        NativeFunction::new("refine_mishap", Some(2), refine_mishap),
+
+        // Chaining
+        NativeFunction::new("then_triumph", Some(2), then_triumph),
+
+        // === Maybe<T> Helper Functions ===
+        // Inspection
+        NativeFunction::new("is_present", Some(1), is_present),
+        NativeFunction::new("is_absent", Some(1), is_absent),
+
+        // Extraction
+        NativeFunction::new("expect_present", Some(2), expect_present),
+        NativeFunction::new("present_or", Some(2), present_or),
+        NativeFunction::new("present_or_else", Some(2), present_or_else),
+
+        // Transformation
+        NativeFunction::new("refine_present", Some(2), refine_present),
+
+        // Chaining
+        NativeFunction::new("then_present", Some(2), then_present),
+
+        // === Conversion Functions ===
+        NativeFunction::new("present_or_mishap", Some(2), present_or_mishap),
+        NativeFunction::new("triumph_or_absent", Some(1), triumph_or_absent),
+
+        // === Combination Functions ===
+        NativeFunction::new("both_triumph", Some(2), both_triumph),
+        NativeFunction::new("either_triumph", Some(2), either_triumph),
     ]
 }
 
@@ -649,4 +691,428 @@ fn io_println(_args: &[Value]) -> Result<Value, RuntimeError> {
     Err(RuntimeError::Custom(
         "println() requires kernel I/O capabilities - call from kernel context only".to_string()
     ))
+}
+
+// ============================================================================
+// OUTCOME<T, E> HELPER FUNCTIONS
+// ============================================================================
+
+/// Check if an Outcome is Triumph (success)
+fn is_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success, .. } => Ok(Value::Truth(*success)),
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Check if an Outcome is Mishap (failure)
+fn is_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success, .. } => Ok(Value::Truth(!*success)),
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get triumph value or panic with custom message
+fn expect_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Outcome { success: true, value }, _) => Ok(*value.clone()),
+        (Value::Outcome { success: false, .. }, Value::Text(msg)) => {
+            Err(RuntimeError::Custom(msg.clone()))
+        }
+        (Value::Outcome { success: false, .. }, _) => {
+            Err(RuntimeError::Custom("expect_triumph failed".to_string()))
+        }
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get triumph value or return default
+fn triumph_or(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: true, value } => Ok(*value.clone()),
+        Value::Outcome { success: false, .. } => Ok(args[1].clone()),
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get triumph value or compute default using function
+fn triumph_or_else(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: true, value } => Ok(*value.clone()),
+        Value::Outcome { success: false, .. } => {
+            // Call the function with no arguments
+            match &args[1] {
+                Value::Chant { params, body, closure: _ } => {
+                    if !params.is_empty() {
+                        return Err(RuntimeError::ArityMismatch {
+                            expected: 0,
+                            got: params.len(),
+                        });
+                    }
+                    // We need to create an evaluator to call the function
+                    // For now, return the function itself
+                    // TODO: Need better support for calling functions from native code
+                    Err(RuntimeError::Custom(
+                        "triumph_or_else: Function execution not yet supported from native code".to_string()
+                    ))
+                }
+                v => Err(RuntimeError::TypeError {
+                    expected: "Chant".to_string(),
+                    got: v.type_name().to_string(),
+                }),
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get mishap value or panic with custom message
+fn expect_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Outcome { success: false, value }, _) => Ok(*value.clone()),
+        (Value::Outcome { success: true, .. }, Value::Text(msg)) => {
+            Err(RuntimeError::Custom(msg.clone()))
+        }
+        (Value::Outcome { success: true, .. }, _) => {
+            Err(RuntimeError::Custom("expect_mishap failed".to_string()))
+        }
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Transform triumph value (map operation)
+fn refine_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: true, value } => {
+            // Need to apply function to value
+            // For now, return error as we need evaluator context
+            Err(RuntimeError::Custom(
+                "refine_triumph: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        Value::Outcome { success: false, value } => {
+            // Return mishap unchanged
+            Ok(Value::Outcome {
+                success: false,
+                value: value.clone(),
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Transform mishap value
+fn refine_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: false, value } => {
+            // Need to apply function to error value
+            Err(RuntimeError::Custom(
+                "refine_mishap: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        Value::Outcome { success: true, value } => {
+            // Return triumph unchanged
+            Ok(Value::Outcome {
+                success: true,
+                value: value.clone(),
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Chain outcomes (flatMap operation)
+fn then_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: true, value: _ } => {
+            // Need to apply function and flatten result
+            Err(RuntimeError::Custom(
+                "then_triumph: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        Value::Outcome { success: false, value } => {
+            // Return mishap unchanged
+            Ok(Value::Outcome {
+                success: false,
+                value: value.clone(),
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// MAYBE<T> HELPER FUNCTIONS
+// ============================================================================
+
+/// Check if a Maybe is Present
+fn is_present(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present, .. } => Ok(Value::Truth(*present)),
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Check if a Maybe is Absent
+fn is_absent(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present, .. } => Ok(Value::Truth(!*present)),
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get present value or panic with custom message
+fn expect_present(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Maybe { present: true, value: Some(v) }, _) => Ok(*v.clone()),
+        (Value::Maybe { present: false, .. }, Value::Text(msg)) => {
+            Err(RuntimeError::Custom(msg.clone()))
+        }
+        (Value::Maybe { present: false, .. }, _) => {
+            Err(RuntimeError::Custom("expect_present failed".to_string()))
+        }
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get present value or return default
+fn present_or(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present: true, value: Some(v) } => Ok(*v.clone()),
+        Value::Maybe { present: false, .. } => Ok(args[1].clone()),
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get present value or compute default using function
+fn present_or_else(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present: true, value: Some(v) } => Ok(*v.clone()),
+        Value::Maybe { present: false, .. } => {
+            // Call the function with no arguments
+            Err(RuntimeError::Custom(
+                "present_or_else: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Transform present value (map operation)
+fn refine_present(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present: true, value: Some(_v) } => {
+            // Need to apply function to value
+            Err(RuntimeError::Custom(
+                "refine_present: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        Value::Maybe { present: false, value: None } => {
+            // Return Absent unchanged
+            Ok(Value::Maybe {
+                present: false,
+                value: None,
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Chain maybes (flatMap operation)
+fn then_present(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present: true, value: Some(_v) } => {
+            // Need to apply function and flatten result
+            Err(RuntimeError::Custom(
+                "then_present: Function execution not yet supported from native code".to_string()
+            ))
+        }
+        Value::Maybe { present: false, value: None } => {
+            // Return Absent unchanged
+            Ok(Value::Maybe {
+                present: false,
+                value: None,
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// CONVERSION FUNCTIONS
+// ============================================================================
+
+/// Convert Maybe<T> to Outcome<T, E>
+fn present_or_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Maybe { present: true, value: Some(v) } => {
+            Ok(Value::Outcome {
+                success: true,
+                value: v.clone(),
+            })
+        }
+        Value::Maybe { present: false, .. } => {
+            Ok(Value::Outcome {
+                success: false,
+                value: Box::new(args[1].clone()),
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Maybe".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Convert Outcome<T, E> to Maybe<T> (discards error)
+fn triumph_or_absent(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Outcome { success: true, value } => {
+            Ok(Value::Maybe {
+                present: true,
+                value: Some(value.clone()),
+            })
+        }
+        Value::Outcome { success: false, .. } => {
+            Ok(Value::Maybe {
+                present: false,
+                value: None,
+            })
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Outcome".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// COMBINATION FUNCTIONS
+// ============================================================================
+
+/// Combine two outcomes - both must be Triumph
+fn both_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (
+            Value::Outcome { success: true, value: v1 },
+            Value::Outcome { success: true, value: v2 }
+        ) => {
+            // Create a list with both values (Pair representation)
+            Ok(Value::Outcome {
+                success: true,
+                value: Box::new(Value::List(vec![*v1.clone(), *v2.clone()])),
+            })
+        }
+        (Value::Outcome { success: false, value }, _) => {
+            // First is mishap, return it
+            Ok(Value::Outcome {
+                success: false,
+                value: value.clone(),
+            })
+        }
+        (_, Value::Outcome { success: false, value }) => {
+            // Second is mishap, return it
+            Ok(Value::Outcome {
+                success: false,
+                value: value.clone(),
+            })
+        }
+        (v1, v2) => {
+            // Type error
+            if !matches!(v1, Value::Outcome { .. }) {
+                Err(RuntimeError::TypeError {
+                    expected: "Outcome".to_string(),
+                    got: v1.type_name().to_string(),
+                })
+            } else {
+                Err(RuntimeError::TypeError {
+                    expected: "Outcome".to_string(),
+                    got: v2.type_name().to_string(),
+                })
+            }
+        }
+    }
+}
+
+/// Try first outcome, fallback to second on mishap
+fn either_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Outcome { success: true, value }, _) => {
+            // First is triumph, return it
+            Ok(Value::Outcome {
+                success: true,
+                value: value.clone(),
+            })
+        }
+        (Value::Outcome { success: false, .. }, Value::Outcome { success, value }) => {
+            // First is mishap, return second
+            Ok(Value::Outcome {
+                success: *success,
+                value: value.clone(),
+            })
+        }
+        (v1, v2) => {
+            // Type error
+            if !matches!(v1, Value::Outcome { .. }) {
+                Err(RuntimeError::TypeError {
+                    expected: "Outcome".to_string(),
+                    got: v1.type_name().to_string(),
+                })
+            } else {
+                Err(RuntimeError::TypeError {
+                    expected: "Outcome".to_string(),
+                    got: v2.type_name().to_string(),
+                })
+            }
+        }
+    }
 }

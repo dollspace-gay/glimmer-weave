@@ -1240,6 +1240,13 @@ impl Parser {
                         break;
                     }
                 }
+                Token::Question => {
+                    // Try operator: expr?
+                    self.advance();
+                    expr = AstNode::Try {
+                        expr: Box::new(expr),
+                    };
+                }
                 _ => break,
             }
         }

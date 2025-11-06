@@ -199,6 +199,8 @@ pub enum Token {
     Colon,
     /// `.` dot (member access)
     Dot,
+    /// `?` question mark (try operator)
+    Question,
 
     // === Special ===
     /// Newline (significant in Glimmer-Weave)
@@ -357,6 +359,7 @@ impl Token {
             Token::Comma => ",",
             Token::Colon => ":",
             Token::Dot => ".",
+            Token::Question => "?",
             Token::Newline => "newline",
             Token::Eof => "end of file",
         }

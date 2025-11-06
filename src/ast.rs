@@ -278,6 +278,11 @@ pub enum AstNode {
 
     /// Continue statement: skip to next iteration of innermost loop
     Continue,
+
+    /// Try operator: `expr?` - propagates Mishap errors, unwraps Triumph
+    Try {
+        expr: Box<AstNode>,
+    },
 }
 
 /// Binary operators

@@ -505,6 +505,11 @@ impl Lexer {
                 Token::Dot
             }
 
+            Some('?') => {
+                self.advance();
+                Token::Question
+            }
+
             Some(c) => {
                 // Unknown character - skip it and try next
                 self.advance();

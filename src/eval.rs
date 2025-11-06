@@ -759,6 +759,34 @@ impl Evaluator {
                 Err(RuntimeError::ContinueOutsideLoop)
             }
 
+            // Try operator: expr?
+            AstNode::Try { expr } => {
+                let value = self.eval_node(expr)?;
+
+                // Check if value is an Outcome
+                match value {
+                    Value::Outcome { success, value: boxed_val } => {
+                        if success {
+                            // Triumph: unwrap the value
+                            Ok(*boxed_val)
+                        } else {
+                            // Mishap: propagate the error by returning it
+                            Err(RuntimeError::Return(Value::Outcome {
+                                success: false,
+                                value: boxed_val,
+                            }))
+                        }
+                    }
+                    _ => {
+                        // Type error: ? can only be used on Outcome
+                        Err(RuntimeError::TypeError {
+                            expected: "Outcome".to_string(),
+                            got: value.type_name().to_string(),
+                        })
+                    }
+                }
+            }
+
             // === Binary Operations ===
             AstNode::BinaryOp { left, op, right } => {
                 let left_val = self.eval_node(left)?;

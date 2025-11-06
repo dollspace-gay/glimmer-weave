@@ -706,6 +706,32 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
+            AstNode::Try { expr } => {
+                let expr_type = self.analyze_node(expr);
+
+                // Check if the expression is an Outcome type and extract T from Outcome<T, E>
+                match expr_type {
+                    Type::Generic { ref name, ref type_args } if name == "Outcome" && !type_args.is_empty() => {
+                        // Return T from Outcome<T, E>
+                        type_args[0].clone()
+                    }
+                    Type::Any => {
+                        // Outcome types currently return Any, so we return Any
+                        // This is the common case until Triumph/Mishap are properly typed
+                        Type::Any
+                    }
+                    _ => {
+                        // Not an Outcome type - this is a type error
+                        self.errors.push(SemanticError::TypeError {
+                            expected: "Outcome<T, E>".to_string(),
+                            got: format!("{:?}", expr_type),
+                            context: "try operator (?)".to_string(),
+                        });
+                        Type::Any
+                    }
+                }
+            }
+
             // === Control Flow ===
             AstNode::IfStmt { condition, then_branch, else_branch } => {
                 let cond_type = self.analyze_node(condition);

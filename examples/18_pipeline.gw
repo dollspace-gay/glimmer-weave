@@ -1,0 +1,75 @@
+# Glimmer-Weave Pipeline Operator Example
+# Demonstrates the `|` operator for functional composition
+
+# Basic pipeline - threading a value through functions
+chant double(x) then
+    yield x * 2
+end
+
+chant add_one(x) then
+    yield x + 1
+end
+
+chant square(x) then
+    yield x * x
+end
+
+# Pipeline: value | func1 | func2 | func3
+# Equivalent to: func3(func2(func1(value)))
+bind result1 to 3 | double | add_one | square
+# (3 * 2 = 6) + 1 = 7, 7^2 = 49
+
+# Pipeline with functions that take multiple arguments
+# The piped value becomes the first argument
+chant add(a, b) then
+    yield a + b
+end
+
+chant multiply(a, b) then
+    yield a * b
+end
+
+bind result2 to 5 | add(10) | multiply(2)
+# (5 + 10 = 15) * 2 = 30
+
+# Real-world example: Data transformation pipeline
+chant filter_positive(lst) then
+    weave result as []
+    for each item in lst then
+        should item greater than 0 then
+            set result to list_push(result, item)
+        end
+    end
+    yield result
+end
+
+chant double_all(lst) then
+    weave result as []
+    for each item in lst then
+        set result to list_push(result, item * 2)
+    end
+    yield result
+end
+
+chant sum(lst) then
+    weave total as 0
+    for each item in lst then
+        set total to total + item
+    end
+    yield total
+end
+
+# Process data: filter negative numbers, double remaining, sum
+bind data to [-2, -1, 0, 1, 2, 3, 4, 5]
+bind result3 to data | filter_positive | double_all | sum
+# filter: [1, 2, 3, 4, 5]
+# double: [2, 4, 6, 8, 10]
+# sum: 30
+
+# Pipelines can also work with native functions
+bind numbers to [1, 2, 3, 4, 5]
+bind length to numbers | list_length | double
+# len([1,2,3,4,5]) = 5, 5 * 2 = 10
+
+# Return the final results
+[result1, result2, result3, length]

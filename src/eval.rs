@@ -488,6 +488,138 @@ impl Evaluator {
         Ok(result)
     }
 
+    /// Call a function value with the given arguments.
+    ///
+    /// Handles three types of callable values:
+    /// - `Value::Chant`: User-defined functions with tail-call optimization
+    /// - `Value::NativeChant`: Built-in native functions
+    /// - `Value::VariantConstructor`: Enum variant constructors
+    ///
+    /// # Arguments
+    /// * `func` - The function value to call
+    /// * `args` - The arguments to pass (already evaluated)
+    /// * `callee_node` - The AST node of the callee (for tail-call detection)
+    /// * `type_args` - Type arguments for generic functions
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - The result of the function call
+    /// * `Err(RuntimeError)` - If the call fails (arity mismatch, not callable, etc.)
+    fn call_value(
+        &mut self,
+        func: Value,
+        args: Vec<Value>,
+        callee_node: &AstNode,
+        type_args: &[TypeAnnotation]
+    ) -> Result<Value, RuntimeError> {
+        // Convert type annotations to strings for Phase 3
+        let type_arg_names: Vec<String> = type_args.iter()
+            .map(|ta| match ta {
+                crate::ast::TypeAnnotation::Named(n) => n.clone(),
+                _ => "Unknown".to_string(),
+            })
+            .collect();
+
+        match func {
+            Value::Chant { params, body, closure: _ } => {
+                if params.len() != args.len() {
+                    return Err(RuntimeError::ArityMismatch {
+                        expected: params.len(),
+                        got: args.len(),
+                    });
+                }
+
+                // Get function name if callee is an Ident (for TCO detection)
+                let func_name = match callee_node {
+                    AstNode::Ident(name) => Some(name.clone()),
+                    _ => None,
+                };
+
+                // Trampoline loop for TCO
+                let mut current_args = args;
+                loop {
+                    // Push new scope for function call
+                    self.environment.push_scope();
+
+                    // Bind parameters
+                    for (param, arg) in params.iter().zip(current_args.iter()) {
+                        self.environment.define(param.clone(), arg.clone());
+                    }
+
+                    // Store function name for tail call detection
+                    if let Some(ref name) = func_name {
+                        self.environment.define("__current_function__".to_string(), Value::Text(name.clone()));
+                    }
+
+                    // Execute function body
+                    let result = self.eval(&body);
+
+                    // Restore environment
+                    self.environment.pop_scope();
+
+                    // Handle result
+                    match result {
+                        Err(RuntimeError::Return(val)) => return Ok(val),
+                        Err(RuntimeError::TailCall { function_name, args }) => {
+                            // Check if it's a recursive tail call
+                            if Some(&function_name) == func_name.as_ref() {
+                                // TCO: Loop with new args instead of recursing!
+                                current_args = args;
+                                continue;
+                            } else {
+                                // Not a recursive call, re-throw to propagate up
+                                return Err(RuntimeError::TailCall { function_name, args });
+                            }
+                        }
+                        other => return other,
+                    }
+                }
+            }
+            Value::NativeChant(native_fn) => {
+                // Check arity (None = variadic)
+                if let Some(expected) = native_fn.arity {
+                    if args.len() != expected {
+                        return Err(RuntimeError::ArityMismatch {
+                            expected,
+                            got: args.len(),
+                        });
+                    }
+                }
+
+                // Call native function
+                (native_fn.func)(&args)
+            }
+            Value::VariantConstructor { enum_name, variant_name, field_params, type_params } => {
+                // Phase 2/3: Create a variant value with the provided arguments
+                if field_params.len() != args.len() {
+                    return Err(RuntimeError::ArityMismatch {
+                        expected: field_params.len(),
+                        got: args.len(),
+                    });
+                }
+
+                // Phase 3: Check type argument count for generic enums
+                if !type_params.is_empty() && !type_arg_names.is_empty() {
+                    if type_params.len() != type_arg_names.len() {
+                        return Err(RuntimeError::Custom(format!(
+                            "Type argument mismatch: expected {} type arguments, got {}",
+                            type_params.len(),
+                            type_arg_names.len()
+                        )));
+                    }
+                }
+
+                // Create the variant value with the arguments as fields
+                Ok(Value::VariantValue {
+                    enum_name,
+                    variant_name,
+                    fields: args,
+                    type_args: type_arg_names,  // Phase 3: Store type arguments
+                })
+            }
+            _ => Err(RuntimeError::NotCallable(func.type_name().to_string())),
+        }
+    }
+
     /// Evaluate a single AST node
     pub fn eval_node(&mut self, node: &AstNode) -> Result<Value, RuntimeError> {
         match node {
@@ -1003,113 +1135,8 @@ impl Evaluator {
                     args.iter().map(|arg| self.eval_node(arg)).collect();
                 let arg_vals = arg_vals?;
 
-                // Convert type annotations to strings for Phase 3
-                let type_arg_names: Vec<String> = type_args.iter()
-                    .map(|ta| match ta {
-                        crate::ast::TypeAnnotation::Named(n) => n.clone(),
-                        _ => "Unknown".to_string(),
-                    })
-                    .collect();
-
-                match func {
-                    Value::Chant { params, body, closure: _ } => {
-                        if params.len() != arg_vals.len() {
-                            return Err(RuntimeError::ArityMismatch {
-                                expected: params.len(),
-                                got: arg_vals.len(),
-                            });
-                        }
-
-                        // Get function name if callee is an Ident (for TCO detection)
-                        let func_name = match callee.as_ref() {
-                            AstNode::Ident(name) => Some(name.clone()),
-                            _ => None,
-                        };
-
-                        // Trampoline loop for TCO
-                        let mut current_args = arg_vals;
-                        loop {
-                            // Push new scope for function call
-                            self.environment.push_scope();
-
-                            // Bind parameters
-                            for (param, arg) in params.iter().zip(current_args.iter()) {
-                                self.environment.define(param.clone(), arg.clone());
-                            }
-
-                            // Store function name for tail call detection
-                            if let Some(ref name) = func_name {
-                                self.environment.define("__current_function__".to_string(), Value::Text(name.clone()));
-                            }
-
-                            // Execute function body
-                            let result = self.eval(&body);
-
-                            // Restore environment
-                            self.environment.pop_scope();
-
-                            // Handle result
-                            match result {
-                                Err(RuntimeError::Return(val)) => return Ok(val),
-                                Err(RuntimeError::TailCall { function_name, args }) => {
-                                    // Check if it's a recursive tail call
-                                    if Some(&function_name) == func_name.as_ref() {
-                                        // TCO: Loop with new args instead of recursing!
-                                        current_args = args;
-                                        continue;
-                                    } else {
-                                        // Not a recursive call, re-throw to propagate up
-                                        return Err(RuntimeError::TailCall { function_name, args });
-                                    }
-                                }
-                                other => return other,
-                            }
-                        }
-                    }
-                    Value::NativeChant(native_fn) => {
-                        // Check arity (None = variadic)
-                        if let Some(expected) = native_fn.arity {
-                            if arg_vals.len() != expected {
-                                return Err(RuntimeError::ArityMismatch {
-                                    expected,
-                                    got: arg_vals.len(),
-                                });
-                            }
-                        }
-
-                        // Call native function
-                        (native_fn.func)(&arg_vals)
-                    }
-                    Value::VariantConstructor { enum_name, variant_name, field_params, type_params } => {
-                        // Phase 2/3: Create a variant value with the provided arguments
-                        if field_params.len() != arg_vals.len() {
-                            return Err(RuntimeError::ArityMismatch {
-                                expected: field_params.len(),
-                                got: arg_vals.len(),
-                            });
-                        }
-
-                        // Phase 3: Check type argument count for generic enums
-                        if !type_params.is_empty() && !type_arg_names.is_empty() {
-                            if type_params.len() != type_arg_names.len() {
-                                return Err(RuntimeError::Custom(format!(
-                                    "Type argument mismatch: expected {} type arguments, got {}",
-                                    type_params.len(),
-                                    type_arg_names.len()
-                                )));
-                            }
-                        }
-
-                        // Create the variant value with the arguments as fields
-                        Ok(Value::VariantValue {
-                            enum_name,
-                            variant_name,
-                            fields: arg_vals,
-                            type_args: type_arg_names,  // Phase 3: Store type arguments
-                        })
-                    }
-                    _ => Err(RuntimeError::NotCallable(func.type_name().to_string())),
-                }
+                // Call the function using the helper method
+                self.call_value(func, arg_vals, callee, type_args)
             }
 
             // === Field Access ===
@@ -1280,8 +1307,49 @@ impl Evaluator {
             AstNode::RequestStmt { .. } => {
                 Err(RuntimeError::Custom("Capability requests not yet implemented".to_string()))
             }
-            AstNode::Pipeline { .. } => {
-                Err(RuntimeError::Custom("Pipelines not yet implemented".to_string()))
+            AstNode::Pipeline { stages } => {
+                // Pipeline: value | func1 | func2
+                // Equivalent to: func2(func1(value))
+
+                if stages.is_empty() {
+                    return Err(RuntimeError::Custom("Empty pipeline".to_string()));
+                }
+
+                // Evaluate the first stage to get the initial value
+                let mut current_value = self.eval_node(&stages[0])?;
+
+                // For each remaining stage, pass the current value as an argument
+                for stage in stages.iter().skip(1) {
+                    // Each stage should be a function call or identifier
+                    match stage {
+                        // If it's a function call, prepend the current value as first argument
+                        AstNode::Call { callee, args, type_args } => {
+                            // Evaluate the function
+                            let func = self.eval_node(callee)?;
+
+                            // Evaluate all existing arguments
+                            let mut all_args: Vec<Value> = vec![current_value.clone()];
+                            for arg in args {
+                                all_args.push(self.eval_node(arg)?);
+                            }
+
+                            // Call the function with the current value as first argument
+                            current_value = self.call_value(func, all_args, callee, type_args)?;
+                        }
+                        // If it's just an identifier, call it with the current value
+                        AstNode::Ident(name) => {
+                            let func = self.environment.get(name)?;
+                            current_value = self.call_value(func, vec![current_value.clone()], stage, &[])?;
+                        }
+                        // Otherwise, treat it as a function expression
+                        _ => {
+                            let func = self.eval_node(stage)?;
+                            current_value = self.call_value(func, vec![current_value.clone()], stage, &[])?;
+                        }
+                    }
+                }
+
+                Ok(current_value)
             }
             AstNode::SeekExpr { .. } => {
                 Err(RuntimeError::Custom("World-Tree queries not yet implemented".to_string()))

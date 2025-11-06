@@ -19,7 +19,8 @@
       "Bash(cargo clean:*)",
       "Bash(timeout 45 cargo test:*)",
       "Bash(timeout 10 cargo test:*)",
-      "Bash(timeout 30 cargo test:*)"
+      "Bash(timeout 30 cargo test:*)",
+      "Bash(timeout 20 cargo test:*)"
     ],
     "deny": [],
     "ask": []

@@ -43,6 +43,8 @@ enum VarLocation {
     Local(u8),
     /// Global variable by name
     Global(String),
+    /// Function at bytecode offset
+    Function(usize),
 }
 
 /// Compilation scope
@@ -84,6 +86,10 @@ pub struct BytecodeCompiler {
 
     /// Current function entry point (for TCO jumps)
     function_entry: Option<usize>,
+
+    /// Map of function names to their entry points
+    /// This allows calling functions by name
+    function_table: BTreeMap<String, usize>,
 }
 
 impl BytecodeCompiler {
@@ -97,6 +103,7 @@ impl BytecodeCompiler {
             local_count: 0,
             current_function: None,
             function_entry: None,
+            function_table: BTreeMap::new(),
         }
     }
 
@@ -171,6 +178,11 @@ impl BytecodeCompiler {
                     VarLocation::Global(_) => {
                         let name_id = self.add_string_constant(name.clone());
                         self.emit(Instruction::StoreGlobal { name_id, src: value_reg }, 0);
+                    }
+                    VarLocation::Function(_) => {
+                        return Err(CompileError::UnsupportedFeature(
+                            format!("Cannot assign to function '{}'", name)
+                        ));
                     }
                 }
 
@@ -445,12 +457,16 @@ impl BytecodeCompiler {
 
             AstNode::ChantDef { name, params, return_type: _, body, .. } => {
                 // For now, create a simple inline function
-                // Store function entry point for TCO
+                // Store function entry point for TCO and function table
                 let old_function = self.current_function.clone();
                 let old_entry = self.function_entry;
 
+                let entry_point = self.chunk.offset();
                 self.current_function = Some(name.clone());
-                self.function_entry = Some(self.chunk.offset());
+                self.function_entry = Some(entry_point);
+
+                // Register function in function table for later calls
+                self.function_table.insert(name.clone(), entry_point);
 
                 // Push new scope for function
                 self.scopes.push(Scope::new(self.scopes.len()));
@@ -716,6 +732,16 @@ impl BytecodeCompiler {
                     VarLocation::Global(_) => {
                         let name_id = self.add_string_constant(name.clone());
                         self.emit(Instruction::LoadGlobal { dest: reg, name_id }, 0);
+                    }
+                    VarLocation::Function(offset) => {
+                        // FIXME: Bytecode doesn't support first-class functions yet.
+                        // For now, store the function offset as a number constant.
+                        // This allows function references to work for direct calls.
+                        let func_id = self.chunk.add_constant(Constant::Number(offset as f64));
+                        self.emit(Instruction::LoadConst {
+                            dest: reg,
+                            constant_id: func_id,
+                        }, 0);
                     }
                 }
 
@@ -1017,6 +1043,11 @@ impl BytecodeCompiler {
             if let Some(location) = scope.variables.get(name) {
                 return Ok(location.clone());
             }
+        }
+
+        // Check if it's a function
+        if let Some(&offset) = self.function_table.get(name) {
+            return Ok(VarLocation::Function(offset));
         }
 
         Err(CompileError::UndefinedVariable(name.to_string()))

@@ -26,11 +26,16 @@
 ///
 /// ## Usage
 ///
-/// ```rust
-/// use glimmer_weave::type_inference::{TypeInference, TypeVar, InferType};
+/// ```rust,no_run
+/// use glimmer_weave::type_inference::TypeInference;
+/// use glimmer_weave::ast::AstNode;
 ///
-/// let mut inference = TypeInference::new();
-/// let typed_ast = inference.infer_types(&ast)?;
+/// fn example() -> Result<(), Box<dyn std::error::Error>> {
+///     let mut inference = TypeInference::new();
+///     let ast = vec![AstNode::Number(42.0)];
+///     let typed_ast = inference.infer_types(&ast)?;
+///     Ok(())
+/// }
 /// ```
 
 pub mod type_var;

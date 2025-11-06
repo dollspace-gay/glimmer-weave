@@ -205,6 +205,10 @@ impl Monomorphizer {
                 }
             }
 
+            AstNode::Try { expr } => {
+                self.find_instantiations_in_node(expr);
+            }
+
             // Other nodes don't contain calls
             _ => {}
         }
@@ -421,6 +425,10 @@ impl Monomorphizer {
             AstNode::Block(stmts) => AstNode::Block(
                 stmts.iter().map(|stmt| self.transform_node(stmt)).collect()
             ),
+
+            AstNode::Try { expr } => AstNode::Try {
+                expr: Box::new(self.transform_node(expr)),
+            },
 
             // ChantDef is not transformed here (handled separately)
             // All other nodes are unchanged

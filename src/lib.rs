@@ -62,6 +62,7 @@ pub mod semantic;
 pub mod bytecode;
 pub mod bytecode_compiler;
 pub mod vm;
+pub mod monomorphize;
 
 // Re-export commonly used types
 pub use token::{Token, Span};

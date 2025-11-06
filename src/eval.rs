@@ -531,7 +531,7 @@ impl Evaluator {
             }
 
             // chant greet(name) then ... end
-            AstNode::ChantDef { name, params, return_type: _, body } => {
+            AstNode::ChantDef { name, params, return_type: _, body, .. } => {
                 // Type annotations are checked by semantic analyzer, extract param names only
                 let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
 
@@ -560,7 +560,7 @@ impl Evaluator {
                 Ok(chant)
             }
 
-            AstNode::FormDef { name, fields } => {
+            AstNode::FormDef { name, fields, .. } => {
                 // Create struct definition
                 let struct_def = Value::StructDef {
                     name: name.clone(),
@@ -572,7 +572,7 @@ impl Evaluator {
                 Ok(struct_def)
             }
 
-            AstNode::StructLiteral { struct_name, fields: field_values } => {
+            AstNode::StructLiteral { struct_name, fields: field_values, .. } => {
                 // Look up the struct definition
                 let struct_def = self.environment.get(struct_name)?;
 
@@ -610,7 +610,7 @@ impl Evaluator {
             // yield result
             AstNode::YieldStmt { value } => {
                 // Check if we're yielding a call (potential tail call)
-                if let AstNode::Call { callee, args } = value.as_ref() {
+                if let AstNode::Call { callee, args, .. } = value.as_ref() {
                     // Check if callee is an identifier
                     if let AstNode::Ident(func_name) = callee.as_ref() {
                         // Check if it's a tail call to the current function
@@ -650,7 +650,7 @@ impl Evaluator {
             }
 
             // === Function Calls ===
-            AstNode::Call { callee, args } => {
+            AstNode::Call { callee, args, .. } => {
                 let func = self.eval_node(callee)?;
                 let arg_vals: Result<Vec<Value>, RuntimeError> =
                     args.iter().map(|arg| self.eval_node(arg)).collect();

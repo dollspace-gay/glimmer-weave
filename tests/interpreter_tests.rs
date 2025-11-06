@@ -89,8 +89,8 @@ fn test_string_concatenation() {
 
 #[test]
 fn test_comparison() {
-    assert_eval("5 > 3", Value::Truth(true));
-    assert_eval("5 < 3", Value::Truth(false));
+    assert_eval("5 greater than 3", Value::Truth(true));
+    assert_eval("5 less than 3", Value::Truth(false));
     assert_eval("5 >= 5", Value::Truth(true));
     assert_eval("5 <= 4", Value::Truth(false));
 }
@@ -151,7 +151,7 @@ x + y
 fn test_if_then_true() {
     let source = r#"
 bind x to 10
-should x > 5 then
+should x greater than 5 then
     42
 otherwise
     0
@@ -164,7 +164,7 @@ end
 fn test_if_then_false() {
     let source = r#"
 bind x to 3
-should x > 5 then
+should x greater than 5 then
     42
 otherwise
     0

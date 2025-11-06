@@ -38,8 +38,8 @@ bind remainder to 10 % 3
 
 bind is_equal to 5 is 5
 bind is_not_equal to 5 is not 3
-bind is_greater to 10 > 5
-bind is_less to 5 < 10
+bind is_greater to 10 greater than 5
+bind is_less to 5 less than 10
 bind is_greater_eq to 10 >= 10
 bind is_less_eq to 5 <= 10
 
@@ -57,7 +57,7 @@ bind logical_not to not false
 
 weave conditional_result as 0
 
-should 10 > 5 then
+should 10 greater than 5 then
     set conditional_result to 100
 end
 
@@ -71,7 +71,7 @@ end
 weave nested_result as 0
 
 should true then
-    should 5 > 3 then
+    should 5 greater than 3 then
         set nested_result to 42
     end
 end
@@ -99,7 +99,7 @@ end
 weave while_counter as 5
 weave while_sum as 0
 
-whilst while_counter > 0 then
+whilst while_counter greater than 0 then
     set while_sum to while_sum + while_counter
     set while_counter to while_counter - 1
 end
@@ -137,7 +137,7 @@ bind add_result to add(10, 32)
 
 # Function with conditional
 chant absolute(n) then
-    should n < 0 then
+    should n less than 0 then
         yield 0 - n
     otherwise
         yield n
@@ -247,7 +247,7 @@ chant collatz_steps(n) then
     weave steps as 0
     weave num as n
 
-    whilst num > 1 then
+    whilst num greater than 1 then
         should num % 2 is 0 then
             set num to num / 2
         otherwise
@@ -270,7 +270,7 @@ chant gcd(a, b) then
     weave x as a
     weave y as b
 
-    whilst y > 0 then
+    whilst y greater than 0 then
         weave temp as y
         set y to x % y
         set x to temp

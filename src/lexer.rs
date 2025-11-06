@@ -429,16 +429,27 @@ impl Lexer {
                 Token::Percent
             }
 
-            // < and > are ONLY for generic type syntax (e.g., List<Number>)
-            // For comparisons, use natural language: "greater than", "less than", etc.
+            // < and > with = make comparison operators
+            // Otherwise, < and > are ONLY for generic type syntax (e.g., List<Number>)
+            // For natural comparisons, use: "greater than", "less than", "at least", "at most"
             Some('<') => {
                 self.advance();
-                Token::LeftAngle
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Token::AtMost  // <=
+                } else {
+                    Token::LeftAngle  // For generics only
+                }
             }
 
             Some('>') => {
                 self.advance();
-                Token::RightAngle
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Token::AtLeast  // >=
+                } else {
+                    Token::RightAngle  // For generics only
+                }
             }
 
             Some('|') => {

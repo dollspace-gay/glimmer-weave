@@ -585,7 +585,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::ChantDef { name, params, return_type: _, body } => {
+            AstNode::ChantDef { name, params, return_type: _, body, .. } => {
                 // Generate function with TCO support
                 let old_function = self.current_function.clone();
                 let old_label = self.function_entry_label.clone();
@@ -635,7 +635,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::FormDef { name, fields: _ } => {
+            AstNode::FormDef { name, fields: _, .. } => {
                 // Struct definitions in native codegen require runtime support
                 // For now, we'll emit a placeholder that stores the struct definition
                 // as a global symbol (though it won't be fully functional)
@@ -646,7 +646,7 @@ impl CodeGen {
 
             AstNode::YieldStmt { value } => {
                 // Check for tail call (yield f(args) where f is current function)
-                if let AstNode::Call { callee, args } = value.as_ref() {
+                if let AstNode::Call { callee, args, .. } = value.as_ref() {
                     if let AstNode::Ident(func_name) = callee.as_ref() {
                         if Some(func_name) == self.current_function.as_ref() {
                             // This is a tail call! Use TCO.
@@ -1026,7 +1026,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::Call { callee, args } => {
+            AstNode::Call { callee, args, .. } => {
                 // Function call with System V ABI
                 // Arguments in: rdi, rsi, rdx, rcx, r8, r9
                 let arg_regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
@@ -1189,7 +1189,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::StructLiteral { struct_name, fields: _ } => {
+            AstNode::StructLiteral { struct_name, fields: _, .. } => {
                 // Struct instantiation requires heap allocation runtime
                 self.emit(Instruction::Comment(format!("Struct literal: {}", struct_name)));
                 self.emit(Instruction::Comment("Note: Struct instantiation requires heap allocation runtime".to_string()));
@@ -1466,6 +1466,7 @@ mod tests {
         // end
         let ast = vec![ChantDef {
             name: "sum_to".to_string(),
+            type_params: vec![],
             params: vec![
                 Parameter { name: "n".to_string(), typ: None },
                 Parameter { name: "acc".to_string(), typ: None },
@@ -1483,6 +1484,7 @@ mod tests {
                 else_branch: Some(vec![YieldStmt {
                     value: Box::new(Call {
                         callee: Box::new(Ident("sum_to".to_string())),
+                        type_args: vec![],
                         args: vec![
                             BinaryOp {
                                 left: Box::new(Ident("n".to_string())),

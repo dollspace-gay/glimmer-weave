@@ -1,8 +1,8 @@
 [package]
 name = "glimmer_weave"
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
+version = "0.1.0"
+authors = ["Glimmer-Weave Contributors"]
+edition = "2021"
 
 [dependencies]
 # Use libm for no_std environments, std math for tests

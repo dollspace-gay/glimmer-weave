@@ -443,7 +443,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::ChantDef { name, params, return_type: _, body } => {
+            AstNode::ChantDef { name, params, return_type: _, body, .. } => {
                 // For now, create a simple inline function
                 // Store function entry point for TCO
                 let old_function = self.current_function.clone();
@@ -488,7 +488,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::FormDef { name, fields } => {
+            AstNode::FormDef { name, fields, .. } => {
                 // Create struct definition as a constant
                 let struct_def_id = self.chunk.add_constant(Constant::StructDef {
                     name: name.clone(),
@@ -516,7 +516,7 @@ impl BytecodeCompiler {
 
             AstNode::YieldStmt { value } => {
                 // Check for tail call (yield f(args) where f is current function)
-                if let AstNode::Call { callee, args } = value.as_ref() {
+                if let AstNode::Call { callee, args, .. } = value.as_ref() {
                     if let AstNode::Ident(func_name) = callee.as_ref() {
                         if Some(func_name) == self.current_function.as_ref() {
                             // This is a tail call! Use TCO.
@@ -808,7 +808,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::Call { callee, args } => {
+            AstNode::Call { callee, args, .. } => {
                 // Compile callee (should be a function value)
                 let func_reg = self.compile_expr(callee)?;
 
@@ -880,7 +880,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::StructLiteral { struct_name, fields } => {
+            AstNode::StructLiteral { struct_name, fields, .. } => {
                 // Look up the struct definition (it should be a global)
                 // For now, we'll use the struct name as a constant ID reference
                 let struct_def_id = self.chunk.add_constant(Constant::Text(struct_name.clone()));
@@ -1027,6 +1027,17 @@ impl BytecodeCompiler {
 pub fn compile(nodes: &[AstNode]) -> CompileResult<BytecodeChunk> {
     let mut compiler = BytecodeCompiler::new("main".to_string());
     compiler.compile(nodes)
+}
+
+/// Compile Glimmer-Weave AST to bytecode with monomorphization
+/// This applies monomorphization to generic functions before compilation
+pub fn compile_with_monomorphization(nodes: &[AstNode]) -> CompileResult<BytecodeChunk> {
+    // Apply monomorphization pass
+    let mut monomorphizer = crate::monomorphize::Monomorphizer::new();
+    let monomorphized_ast = monomorphizer.monomorphize(nodes);
+
+    // Compile the monomorphized AST
+    compile(&monomorphized_ast)
 }
 
 #[cfg(test)]

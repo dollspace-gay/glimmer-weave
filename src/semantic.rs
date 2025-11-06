@@ -47,6 +47,15 @@ pub enum Type {
     Unknown,
     /// Any type (for dynamic typing)
     Any,
+    /// Generic type parameter: T, U, Key, Value
+    /// Used in generic function/struct definitions
+    TypeParam(String),
+    /// Parametrized/generic type: Box<Number>, Pair<T, U>
+    /// name is the type constructor, type_args are the type arguments
+    Generic {
+        name: String,
+        type_args: Vec<Type>,
+    },
 }
 
 impl Type {
@@ -59,10 +68,46 @@ impl Type {
             (Type::Any, _) | (_, Type::Any) => true,
             // Unknown can be anything (used during type inference)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
+            // Type parameters are compatible with anything during analysis
+            // (they'll be substituted later)
+            (Type::TypeParam(_), _) | (_, Type::TypeParam(_)) => true,
             // Lists are compatible if element types match
             (Type::List(a), Type::List(b)) => a.is_compatible(b),
+            // Generic types are compatible if names and type args match
+            (Type::Generic { name: n1, type_args: args1 }, Type::Generic { name: n2, type_args: args2 }) => {
+                n1 == n2 && args1.len() == args2.len() &&
+                args1.iter().zip(args2.iter()).all(|(a, b)| a.is_compatible(b))
+            }
             // Otherwise incompatible
             _ => false,
+        }
+    }
+
+    /// Substitute type parameters with concrete types
+    /// Example: substitute T -> Number in List<T> produces List<Number>
+    pub fn substitute(&self, substitutions: &BTreeMap<String, Type>) -> Type {
+        match self {
+            Type::TypeParam(name) => {
+                // If we have a substitution for this type parameter, use it
+                substitutions.get(name).cloned().unwrap_or_else(|| self.clone())
+            }
+            Type::List(inner) => {
+                Type::List(Box::new(inner.substitute(substitutions)))
+            }
+            Type::Function { params, return_type } => {
+                Type::Function {
+                    params: params.iter().map(|p| p.substitute(substitutions)).collect(),
+                    return_type: Box::new(return_type.substitute(substitutions)),
+                }
+            }
+            Type::Generic { name, type_args } => {
+                Type::Generic {
+                    name: name.clone(),
+                    type_args: type_args.iter().map(|arg| arg.substitute(substitutions)).collect(),
+                }
+            }
+            // All other types don't contain type parameters
+            _ => self.clone(),
         }
     }
 
@@ -80,6 +125,8 @@ impl Type {
             Type::Range => "Range",
             Type::Unknown => "Unknown",
             Type::Any => "Any",
+            Type::TypeParam(_) => "TypeParam",
+            Type::Generic { name, .. } => name,
         }
     }
 }
@@ -221,6 +268,9 @@ pub struct SemanticAnalyzer {
     symbol_table: SymbolTable,
     in_function: bool,
     errors: Vec<SemanticError>,
+    /// Stack of type parameter contexts for generic functions/structs
+    /// Each context maps type parameter names to their Type::TypeParam representation
+    type_params_stack: Vec<BTreeMap<String, Type>>,
 }
 
 impl SemanticAnalyzer {
@@ -230,12 +280,37 @@ impl SemanticAnalyzer {
             symbol_table: SymbolTable::new(),
             in_function: false,
             errors: Vec::new(),
+            type_params_stack: Vec::new(),
         };
 
         // Register builtin functions
         analyzer.register_builtins();
 
         analyzer
+    }
+
+    /// Push a new type parameter context onto the stack
+    fn push_type_params(&mut self, type_params: &[String]) {
+        let mut context = BTreeMap::new();
+        for param in type_params {
+            context.insert(param.clone(), Type::TypeParam(param.clone()));
+        }
+        self.type_params_stack.push(context);
+    }
+
+    /// Pop the current type parameter context
+    fn pop_type_params(&mut self) {
+        self.type_params_stack.pop();
+    }
+
+    /// Lookup a type parameter in the current context stack
+    fn lookup_type_param(&self, name: &str) -> Option<Type> {
+        for context in self.type_params_stack.iter().rev() {
+            if let Some(typ) = context.get(name) {
+                return Some(typ.clone());
+            }
+        }
+        None
     }
 
     /// Register builtin runtime library functions
@@ -373,7 +448,7 @@ impl SemanticAnalyzer {
 
                 // If type annotation is provided, check compatibility
                 let declared_type = if let Some(type_ann) = typ {
-                    let t = Self::convert_type_annotation(type_ann);
+                    let t = self.convert_type_annotation(type_ann);
                     // Check value matches declared type
                     if !t.is_compatible(&value_type) {
                         self.errors.push(SemanticError::TypeError {
@@ -398,7 +473,7 @@ impl SemanticAnalyzer {
 
                 // If type annotation is provided, check compatibility
                 let declared_type = if let Some(type_ann) = typ {
-                    let t = Self::convert_type_annotation(type_ann);
+                    let t = self.convert_type_annotation(type_ann);
                     // Check value matches declared type
                     if !t.is_compatible(&value_type) {
                         self.errors.push(SemanticError::TypeError {
@@ -440,22 +515,27 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::ChantDef { name, params, return_type, body } => {
-                // Extract parameter types from annotations
+            AstNode::ChantDef { name, type_params, params, return_type, body } => {
+                // Push type parameters onto the stack if any
+                if !type_params.is_empty() {
+                    self.push_type_params(type_params);
+                }
+
+                // Extract parameter types from annotations (with type params in scope)
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
                         p.typ
                             .as_ref()
-                            .map(|t| Self::convert_type_annotation(t))
+                            .map(|t| self.convert_type_annotation(t))
                             .unwrap_or(Type::Any)
                     })
                     .collect();
 
-                // Extract return type from annotation
+                // Extract return type from annotation (with type params in scope)
                 let ret_type = return_type
                     .as_ref()
-                    .map(|t| Self::convert_type_annotation(t))
+                    .map(|t| self.convert_type_annotation(t))
                     .unwrap_or(Type::Any);
 
                 // Define function in current scope
@@ -485,20 +565,36 @@ impl SemanticAnalyzer {
                 self.in_function = false;
                 self.symbol_table.pop_scope();
 
+                // Pop type parameters after analysis
+                if !type_params.is_empty() {
+                    self.pop_type_params();
+                }
+
                 Type::Nothing
             }
 
-            AstNode::FormDef { name, fields: _ } => {
+            AstNode::FormDef { name, type_params, fields: _ } => {
+                // Push type parameters onto the stack if any
+                if !type_params.is_empty() {
+                    self.push_type_params(type_params);
+                }
+
                 // Define struct type in current scope
                 // For now, we'll use Type::Any as a placeholder
                 // In a more complete implementation, we'd have a Type::Struct variant
                 if let Err(e) = self.symbol_table.define(name.clone(), Type::Any, false) {
                     self.errors.push(e);
                 }
+
+                // Pop type parameters after definition
+                if !type_params.is_empty() {
+                    self.pop_type_params();
+                }
+
                 Type::Nothing
             }
 
-            AstNode::StructLiteral { struct_name, fields: _ } => {
+            AstNode::StructLiteral { struct_name, fields: _, .. } => {
                 // Check that the struct type exists
                 if self.symbol_table.lookup(struct_name).is_none() {
                     self.errors.push(SemanticError::UndefinedVariable(struct_name.clone()));
@@ -665,7 +761,7 @@ impl SemanticAnalyzer {
             }
 
             // === Function Calls ===
-            AstNode::Call { callee, args } => {
+            AstNode::Call { callee, args, .. } => {
                 let func_type = self.analyze_node(callee);
 
                 // Analyze argument types
@@ -884,7 +980,7 @@ impl SemanticAnalyzer {
     }
 
     /// Convert AST TypeAnnotation to semantic Type
-    fn convert_type_annotation(ann: &crate::ast::TypeAnnotation) -> Type {
+    fn convert_type_annotation(&self, ann: &crate::ast::TypeAnnotation) -> Type {
         use crate::ast::TypeAnnotation;
         match ann {
             TypeAnnotation::Named(name) => match name.as_str() {
@@ -895,16 +991,38 @@ impl SemanticAnalyzer {
                 "Map" => Type::Map,
                 _ => Type::Unknown, // Unknown type name
             },
+            TypeAnnotation::Generic(name) => {
+                // Look up type parameter in current context
+                if let Some(typ) = self.lookup_type_param(name) {
+                    typ
+                } else {
+                    // Not in scope - could be error, but treat as Unknown for now
+                    Type::Unknown
+                }
+            }
+            TypeAnnotation::Parametrized { name, type_args } => {
+                // Convert type arguments
+                let resolved_type_args: Vec<Type> = type_args
+                    .iter()
+                    .map(|arg| self.convert_type_annotation(arg))
+                    .collect();
+
+                // Create Generic type
+                Type::Generic {
+                    name: name.clone(),
+                    type_args: resolved_type_args,
+                }
+            }
             TypeAnnotation::List(inner) => {
-                Type::List(Box::new(Self::convert_type_annotation(inner)))
+                Type::List(Box::new(self.convert_type_annotation(inner)))
             }
             TypeAnnotation::Map => Type::Map,
             TypeAnnotation::Function { param_types, return_type } => Type::Function {
                 params: param_types
                     .iter()
-                    .map(|t| Self::convert_type_annotation(t))
+                    .map(|t| self.convert_type_annotation(t))
                     .collect(),
-                return_type: Box::new(Self::convert_type_annotation(return_type)),
+                return_type: Box::new(self.convert_type_annotation(return_type)),
             },
             TypeAnnotation::Optional(_) => {
                 // Optional types not yet supported, treat as Any for now
@@ -1007,5 +1125,122 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], SemanticError::NonExhaustiveMatch { .. }));
+    }
+
+    #[test]
+    fn test_generic_function_type_param_resolution() {
+        // chant identity<T>(x: T) -> T then
+        //     yield x
+        // end
+        let ast = vec![AstNode::ChantDef {
+            name: "identity".to_string(),
+            type_params: vec!["T".to_string()],
+            params: vec![Parameter {
+                name: "x".to_string(),
+                typ: Some(TypeAnnotation::Generic("T".to_string())),
+            }],
+            return_type: Some(TypeAnnotation::Generic("T".to_string())),
+            body: vec![AstNode::YieldStmt {
+                value: Box::new(AstNode::Ident("x".to_string())),
+            }],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors - T is a valid type parameter
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
+    }
+
+    #[test]
+    fn test_generic_struct_type_param_resolution() {
+        // form Box<T> with
+        //     value as T
+        // end
+        let ast = vec![AstNode::FormDef {
+            name: "Box".to_string(),
+            type_params: vec!["T".to_string()],
+            fields: vec![StructField {
+                name: "value".to_string(),
+                typ: TypeAnnotation::Generic("T".to_string()),
+            }],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors - T is a valid type parameter
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
+    }
+
+    #[test]
+    fn test_generic_function_multiple_type_params() {
+        // chant pair<T, U>(first: T, second: U) -> Number then
+        //     yield 42
+        // end
+        let ast = vec![AstNode::ChantDef {
+            name: "pair".to_string(),
+            type_params: vec!["T".to_string(), "U".to_string()],
+            params: vec![
+                Parameter {
+                    name: "first".to_string(),
+                    typ: Some(TypeAnnotation::Generic("T".to_string())),
+                },
+                Parameter {
+                    name: "second".to_string(),
+                    typ: Some(TypeAnnotation::Generic("U".to_string())),
+                },
+            ],
+            return_type: Some(TypeAnnotation::Named("Number".to_string())),
+            body: vec![AstNode::YieldStmt {
+                value: Box::new(AstNode::Number(42.0)),
+            }],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors - both T and U are valid type parameters
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
+    }
+
+    #[test]
+    fn test_generic_parametrized_type_conversion() {
+        // Test that Parametrized types are converted to Generic types correctly
+        // chant wrap<T>(x: T) -> Box<T> then
+        //     # Implementation would go here
+        // end
+        let ast = vec![AstNode::ChantDef {
+            name: "wrap".to_string(),
+            type_params: vec!["T".to_string()],
+            params: vec![Parameter {
+                name: "x".to_string(),
+                typ: Some(TypeAnnotation::Generic("T".to_string())),
+            }],
+            return_type: Some(TypeAnnotation::Parametrized {
+                name: "Box".to_string(),
+                type_args: vec![TypeAnnotation::Generic("T".to_string())],
+            }),
+            body: vec![],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        // Push type params to test convert_type_annotation
+        analyzer.push_type_params(&["T".to_string()]);
+
+        let return_type = analyzer.convert_type_annotation(&TypeAnnotation::Parametrized {
+            name: "Box".to_string(),
+            type_args: vec![TypeAnnotation::Generic("T".to_string())],
+        });
+
+        // Should be converted to Generic type with TypeParam argument
+        match return_type {
+            Type::Generic { name, type_args } => {
+                assert_eq!(name, "Box");
+                assert_eq!(type_args.len(), 1);
+                assert_eq!(type_args[0], Type::TypeParam("T".to_string()));
+            }
+            _ => panic!("Expected Generic type, got: {:?}", return_type),
+        }
     }
 }

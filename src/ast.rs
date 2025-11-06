@@ -17,7 +17,16 @@ use alloc::vec::Vec;
 pub enum TypeAnnotation {
     /// Simple type name: `Number`, `Text`, `Truth`
     Named(String),
-    /// List type: `List<Number>`
+    /// Generic type parameter: `T`, `U`, `Key`, `Value`
+    /// Used in function/struct definitions to represent type variables
+    Generic(String),
+    /// Parametrized type: `Box<Number>`, `Pair<T, U>`
+    /// The first String is the type constructor name, Vec contains type arguments
+    Parametrized {
+        name: String,
+        type_args: Vec<TypeAnnotation>,
+    },
+    /// List type: `List<Number>` (legacy support, equivalent to Parametrized)
     List(Box<TypeAnnotation>),
     /// Map type: `Map`
     Map,
@@ -103,16 +112,20 @@ pub enum AstNode {
 
     /// Function definition: `chant greet(name) then ... end`
     /// or with types: `chant factorial(n: Number) -> Number then ... end`
+    /// or with generics: `chant identity<T>(x: T) -> T then ... end`
     ChantDef {
         name: String,
+        type_params: Vec<String>,  // Generic type parameters like ["T", "U"]
         params: Vec<Parameter>,
         return_type: Option<TypeAnnotation>,
         body: Vec<AstNode>,
     },
 
     /// Struct definition: `form Person with name as Text age as Number end`
+    /// or with generics: `form Box<T> with value as T end`
     FormDef {
         name: String,
+        type_params: Vec<String>,  // Generic type parameters like ["T", "U"]
         fields: Vec<StructField>,
     },
 
@@ -175,8 +188,10 @@ pub enum AstNode {
     Map(Vec<(String, AstNode)>),
 
     /// Struct literal: `Person { name: "Alice", age: 30 }`
+    /// or with type args: `Box<Number> { value: 42 }`
     StructLiteral {
         struct_name: String,
+        type_args: Vec<TypeAnnotation>,  // Type arguments for generic instantiation
         fields: Vec<(String, AstNode)>,
     },
 
@@ -194,8 +209,10 @@ pub enum AstNode {
     },
 
     /// Function call: `greet("Elara")`, `VGA.write("Hello")`
+    /// or with type args: `identity<Number>(42)`
     Call {
         callee: Box<AstNode>,
+        type_args: Vec<TypeAnnotation>,  // Type arguments for generic function calls
         args: Vec<AstNode>,
     },
 

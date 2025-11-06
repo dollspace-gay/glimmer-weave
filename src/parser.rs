@@ -319,6 +319,38 @@ impl Parser {
         };
         self.advance();
 
+        // Parse optional generic type parameters: <T, U>
+        let type_params = if matches!(self.current(), Token::LeftAngle) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+
+            loop {
+                match self.current() {
+                    Token::Ident(param_name) => {
+                        params.push(param_name.clone());
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected type parameter name".to_string(),
+                            position: self.position,
+                        })
+                    }
+                }
+            }
+
+            self.expect(Token::RightAngle)?;
+            params
+        } else {
+            Vec::new() // No generic type parameters
+        };
+
         // Parse parameters with optional type annotations
         self.expect(Token::LeftParen)?;
 
@@ -376,6 +408,7 @@ impl Parser {
 
         Ok(AstNode::ChantDef {
             name,
+            type_params,
             params,
             return_type,
             body,
@@ -383,6 +416,7 @@ impl Parser {
     }
 
     /// Parse: form Person with name as Text age as Number end
+    /// or: form Box<T> with value as T end
     fn parse_form_def(&mut self) -> ParseResult<AstNode> {
         self.expect(Token::Form)?;
 
@@ -396,6 +430,38 @@ impl Parser {
             }
         };
         self.advance();
+
+        // Parse optional generic type parameters: <T, U>
+        let type_params = if matches!(self.current(), Token::LeftAngle) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+
+            loop {
+                match self.current() {
+                    Token::Ident(param_name) => {
+                        params.push(param_name.clone());
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected type parameter name".to_string(),
+                            position: self.position,
+                        })
+                    }
+                }
+            }
+
+            self.expect(Token::RightAngle)?;
+            params
+        } else {
+            Vec::new() // No generic type parameters
+        };
 
         self.expect(Token::With)?;
         self.skip_newlines();
@@ -428,7 +494,11 @@ impl Parser {
 
         self.expect(Token::End)?;
 
-        Ok(AstNode::FormDef { name, fields })
+        Ok(AstNode::FormDef {
+            name,
+            type_params,
+            fields,
+        })
     }
 
     /// Parse: yield result
@@ -807,7 +877,97 @@ impl Parser {
                         field,
                     };
                 }
+                Token::LeftAngle => {
+                    // Parse type arguments: identity<Number> or Box<T>
+                    // This must be followed by either ( for function call or { for struct literal
+                    self.advance(); // consume <
+
+                    let mut type_args = Vec::new();
+                    loop {
+                        type_args.push(self.parse_type_annotation()?);
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.expect(Token::RightAngle)?;
+
+                    // Now we expect either ( for call or { for struct literal
+                    match self.current() {
+                        Token::LeftParen => {
+                            // Generic function call: identity<Number>(42)
+                            self.advance();
+                            let mut args = Vec::new();
+
+                            if !matches!(self.current(), Token::RightParen) {
+                                loop {
+                                    args.push(self.parse_expression()?);
+                                    if !self.match_token(Token::Comma) {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            self.expect(Token::RightParen)?;
+                            expr = AstNode::Call {
+                                callee: Box::new(expr),
+                                type_args,
+                                args,
+                            };
+                        }
+                        Token::LeftBrace => {
+                            // Generic struct literal: Box<Number> { value: 42 }
+                            if let AstNode::Ident(struct_name) = expr {
+                                self.advance(); // consume {
+
+                                let mut fields = Vec::new();
+                                if !matches!(self.current(), Token::RightBrace) {
+                                    loop {
+                                        let field_name = match self.current() {
+                                            Token::Ident(n) => n.clone(),
+                                            _ => {
+                                                return Err(ParseError {
+                                                    message: "Expected field name in struct literal".to_string(),
+                                                    position: self.position,
+                                                })
+                                            }
+                                        };
+                                        self.advance();
+                                        self.expect(Token::Colon)?;
+                                        let field_value = self.parse_expression()?;
+                                        fields.push((field_name, field_value));
+
+                                        if !self.match_token(Token::Comma) {
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                self.expect(Token::RightBrace)?;
+                                expr = AstNode::StructLiteral {
+                                    struct_name,
+                                    type_args,
+                                    fields,
+                                };
+                            } else {
+                                return Err(ParseError {
+                                    message: "Type arguments can only be used with identifiers".to_string(),
+                                    position: self.position,
+                                });
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError {
+                                message: "Expected '(' or '{' after type arguments".to_string(),
+                                position: self.position,
+                            });
+                        }
+                    }
+                }
                 Token::LeftParen => {
+                    // Non-generic function call
                     self.advance();
                     let mut args = Vec::new();
 
@@ -823,6 +983,7 @@ impl Parser {
                     self.expect(Token::RightParen)?;
                     expr = AstNode::Call {
                         callee: Box::new(expr),
+                        type_args: Vec::new(), // No type arguments
                         args,
                     };
                 }
@@ -870,6 +1031,7 @@ impl Parser {
                         self.expect(Token::RightBrace)?;
                         expr = AstNode::StructLiteral {
                             struct_name,
+                            type_args: Vec::new(), // No type arguments
                             fields,
                         };
                     } else {
@@ -1076,17 +1238,44 @@ impl Parser {
                 let name = type_name.clone();
                 self.advance();
 
-                // Check for generic type syntax: List<T>
-                if name == "List" && matches!(self.current(), Token::LeftAngle) {
+                // Check for parametrized type syntax: Box<T>, Pair<T, U>, List<Number>
+                if matches!(self.current(), Token::LeftAngle) {
                     self.advance(); // consume <
-                    let inner_type = Box::new(self.parse_type_annotation()?);
+
+                    // Parse type arguments
+                    let mut type_args = Vec::new();
+                    loop {
+                        type_args.push(self.parse_type_annotation()?);
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+
                     self.expect(Token::RightAngle)?;
-                    Ok(TypeAnnotation::List(inner_type))
+
+                    // Special case for List to maintain backward compatibility
+                    if name == "List" && type_args.len() == 1 {
+                        Ok(TypeAnnotation::List(Box::new(type_args.into_iter().next().unwrap())))
+                    } else {
+                        Ok(TypeAnnotation::Parametrized {
+                            name,
+                            type_args,
+                        })
+                    }
                 } else if name == "Map" {
                     Ok(TypeAnnotation::Map)
                 } else {
-                    // Simple named type: Number, Text, Truth, Nothing, etc.
-                    Ok(TypeAnnotation::Named(name))
+                    // Simple type: could be Named (Number, Text) or Generic (T, U)
+                    // For now, treat single uppercase letters as generic type parameters
+                    // The semantic analyzer will determine the actual meaning based on scope
+                    if name.len() == 1 && name.chars().next().unwrap().is_uppercase() {
+                        Ok(TypeAnnotation::Generic(name))
+                    } else {
+                        Ok(TypeAnnotation::Named(name))
+                    }
                 }
             }
             _ => Err(ParseError {

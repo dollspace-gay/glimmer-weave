@@ -171,7 +171,7 @@ fn test_gcd_correctness() {
             weave x as a
             weave y as b
 
-            whilst y > 0 then
+            whilst y greater than 0 then
                 weave temp as y
                 set y to x % y
                 set x to temp
@@ -230,7 +230,7 @@ fn test_collatz_conjecture() {
             weave steps as 0
             weave num as n
 
-            whilst num > 1 then
+            whilst num greater than 1 then
                 should num % 2 is 0 then
                     set num to num / 2
                 otherwise

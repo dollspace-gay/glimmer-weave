@@ -178,6 +178,22 @@ pub fn get_builtins() -> Vec<NativeFunction> {
 
         // Transformation
         NativeFunction::new("refine_variant", Some(3), refine_variant),
+
+        // === Iterator Functions - Phase 1 ===
+        // Core iteration
+        NativeFunction::new("iter", Some(1), iter_create),
+        NativeFunction::new("iter_next", Some(1), iter_next),
+
+        // Transformation
+        NativeFunction::new("iter_map", Some(2), iter_map),
+        NativeFunction::new("iter_filter", Some(2), iter_filter),
+
+        // Reduction
+        NativeFunction::new("iter_fold", Some(3), iter_fold),
+        NativeFunction::new("iter_collect", Some(1), iter_collect),
+
+        // Limiting
+        NativeFunction::new("iter_take", Some(2), iter_take),
     ]
 }
 
@@ -681,6 +697,9 @@ fn to_text(args: &[Value]) -> Result<Value, RuntimeError> {
         Value::VariantConstructor { variant_name, .. } => {
             // Phase 2: Show constructor as a callable function
             format!("[VariantConstructor:{}]", variant_name)
+        }
+        Value::Iterator { iterator_type, .. } => {
+            format!("[Iterator:{}]", iterator_type)
         }
     };
     Ok(Value::Text(text))
@@ -1300,6 +1319,221 @@ fn refine_variant(args: &[Value]) -> Result<Value, RuntimeError> {
         }
         v => Err(RuntimeError::TypeError {
             expected: "VariantValue".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// ITERATOR FUNCTIONS - Phase 1
+// ============================================================================
+
+/// Create an iterator from a list or range
+fn iter_create(args: &[Value]) -> Result<Value, RuntimeError> {
+    use crate::eval::IteratorState;
+
+    match &args[0] {
+        Value::List(elements) => Ok(Value::Iterator {
+            iterator_type: "List".to_string(),
+            state: Box::new(IteratorState::List {
+                elements: elements.clone(),
+                index: 0,
+            }),
+        }),
+        Value::Range { start, end } => {
+            match (start.as_ref(), end.as_ref()) {
+                (Value::Number(s), Value::Number(e)) => Ok(Value::Iterator {
+                    iterator_type: "Range".to_string(),
+                    state: Box::new(IteratorState::Range {
+                        current: *s,
+                        end: *e,
+                        step: 1.0,
+                    }),
+                }),
+                _ => Err(RuntimeError::TypeError {
+                    expected: "Range with Numbers".to_string(),
+                    got: "Range with non-numbers".to_string(),
+                }),
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List or Range".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get next value from iterator
+fn iter_next(args: &[Value]) -> Result<Value, RuntimeError> {
+    use crate::eval::IteratorState;
+
+    match &args[0] {
+        Value::Iterator { iterator_type, state } => {
+            let mut state_clone = (**state).clone();
+
+            let (maybe_value, updated_state) = match &mut state_clone {
+                IteratorState::List { elements, index } => {
+                    if *index < elements.len() {
+                        let value = elements[*index].clone();
+                        *index += 1;
+                        (
+                            Value::Maybe {
+                                present: true,
+                                value: Some(Box::new(value)),
+                            },
+                            state_clone,
+                        )
+                    } else {
+                        (
+                            Value::Maybe {
+                                present: false,
+                                value: None,
+                            },
+                            state_clone,
+                        )
+                    }
+                }
+                IteratorState::Range { current, end, step } => {
+                    if *current < *end {
+                        let value = *current;
+                        *current += *step;
+                        (
+                            Value::Maybe {
+                                present: true,
+                                value: Some(Box::new(Value::Number(value))),
+                            },
+                            state_clone,
+                        )
+                    } else {
+                        (
+                            Value::Maybe {
+                                present: false,
+                                value: None,
+                            },
+                            state_clone,
+                        )
+                    }
+                }
+                IteratorState::Empty => (
+                    Value::Maybe {
+                        present: false,
+                        value: None,
+                    },
+                    state_clone,
+                ),
+                _ => {
+                    return Err(RuntimeError::Custom(
+                        "iter_next: Advanced iterator types not yet implemented from native code".to_string()
+                    ))
+                }
+            };
+
+            // Return a list: [updated_iterator, maybe_value]
+            let updated_iterator = Value::Iterator {
+                iterator_type: iterator_type.clone(),
+                state: Box::new(updated_state),
+            };
+
+            Ok(Value::List(vec![updated_iterator, maybe_value]))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Iterator".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Create a mapping iterator
+fn iter_map(args: &[Value]) -> Result<Value, RuntimeError> {
+    use crate::eval::IteratorState;
+
+    match (&args[0], &args[1]) {
+        (Value::Iterator { .. }, func @ Value::Chant { .. }) |
+        (Value::Iterator { .. }, func @ Value::NativeChant(_)) => {
+            Ok(Value::Iterator {
+                iterator_type: "Map".to_string(),
+                state: Box::new(IteratorState::Map {
+                    inner: Box::new(args[0].clone()),
+                    func: Box::new(func.clone()),
+                }),
+            })
+        }
+        (Value::Iterator { .. }, v) => Err(RuntimeError::TypeError {
+            expected: "Function".to_string(),
+            got: v.type_name().to_string(),
+        }),
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Iterator".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Create a filtering iterator
+fn iter_filter(args: &[Value]) -> Result<Value, RuntimeError> {
+    use crate::eval::IteratorState;
+
+    match (&args[0], &args[1]) {
+        (Value::Iterator { .. }, func @ Value::Chant { .. }) |
+        (Value::Iterator { .. }, func @ Value::NativeChant(_)) => {
+            Ok(Value::Iterator {
+                iterator_type: "Filter".to_string(),
+                state: Box::new(IteratorState::Filter {
+                    inner: Box::new(args[0].clone()),
+                    predicate: Box::new(func.clone()),
+                }),
+            })
+        }
+        (Value::Iterator { .. }, v) => Err(RuntimeError::TypeError {
+            expected: "Function".to_string(),
+            got: v.type_name().to_string(),
+        }),
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Iterator".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Fold an iterator into a single value
+fn iter_fold(args: &[Value]) -> Result<Value, RuntimeError> {
+    // Note: This function signature is (iterator, init, func)
+    // The actual reduction logic needs to be implemented in the evaluator
+    // because it requires calling functions dynamically
+    Err(RuntimeError::Custom(
+        "iter_fold: Must be implemented in Glimmer-Weave code, not as native builtin".to_string()
+    ))
+}
+
+/// Collect an iterator into a list
+fn iter_collect(args: &[Value]) -> Result<Value, RuntimeError> {
+    // Note: This needs to be implemented in Glimmer-Weave code
+    // because it requires repeatedly calling iter_next
+    Err(RuntimeError::Custom(
+        "iter_collect: Must be implemented in Glimmer-Weave code, not as native builtin".to_string()
+    ))
+}
+
+/// Create a take iterator
+fn iter_take(args: &[Value]) -> Result<Value, RuntimeError> {
+    use crate::eval::IteratorState;
+
+    match (&args[0], &args[1]) {
+        (Value::Iterator { .. }, Value::Number(n)) => {
+            Ok(Value::Iterator {
+                iterator_type: "Take".to_string(),
+                state: Box::new(IteratorState::Take {
+                    inner: Box::new(args[0].clone()),
+                    remaining: *n as usize,
+                }),
+            })
+        }
+        (Value::Iterator { .. }, v) => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+        (v, _) => Err(RuntimeError::TypeError {
+            expected: "Iterator".to_string(),
             got: v.type_name().to_string(),
         }),
     }

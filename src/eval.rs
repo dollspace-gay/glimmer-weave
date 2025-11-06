@@ -94,6 +94,45 @@ pub enum Value {
         field_params: Vec<crate::ast::Parameter>,  // Field definitions from the variant
         type_params: Vec<String>,  // Generic type parameters (Phase 3)
     },
+    /// Iterator - stateful iterator over a sequence of values
+    /// Implements the Iterator<T> trait with next() -> Maybe<T>
+    Iterator {
+        iterator_type: String,  // "List", "Range", "Map", "Filter", etc.
+        state: Box<IteratorState>,
+    },
+}
+
+/// Iterator state - tracks position and remaining elements
+#[derive(Debug, Clone, PartialEq)]
+pub enum IteratorState {
+    /// List iterator - iterates over list elements
+    List {
+        elements: Vec<Value>,
+        index: usize,
+    },
+    /// Range iterator - iterates over numeric range
+    Range {
+        current: f64,
+        end: f64,
+        step: f64,
+    },
+    /// Map iterator - applies function to each element from inner iterator
+    Map {
+        inner: Box<Value>,  // Inner iterator
+        func: Box<Value>,   // Function to apply
+    },
+    /// Filter iterator - keeps only elements matching predicate
+    Filter {
+        inner: Box<Value>,
+        predicate: Box<Value>,
+    },
+    /// Take iterator - takes at most N elements
+    Take {
+        inner: Box<Value>,
+        remaining: usize,
+    },
+    /// Empty iterator - always returns Absent
+    Empty,
 }
 
 impl Value {
@@ -129,6 +168,7 @@ impl Value {
             Value::VariantDef { name, .. } => return name.as_str(),
             Value::VariantValue { variant_name, .. } => return variant_name.as_str(),
             Value::VariantConstructor { variant_name, .. } => return variant_name.as_str(),
+            Value::Iterator { iterator_type, .. } => return iterator_type.as_str(),
         }
     }
 }

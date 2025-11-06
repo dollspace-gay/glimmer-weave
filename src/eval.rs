@@ -817,12 +817,21 @@ impl Evaluator {
                             evaluated_fields.insert(field_name.clone(), value);
                         }
 
-                        // Check that all required fields are provided
+                        // Check that all required fields are provided and types match
                         for field in &fields {
                             if !evaluated_fields.contains_key(&field.name) {
                                 return Err(RuntimeError::Custom(
                                     format!("Missing field '{}' in struct '{}'", field.name, struct_name)
                                 ));
+                            }
+
+                            // Validate field type matches declaration
+                            let value = &evaluated_fields[&field.name];
+                            if !self.value_matches_type(value, &field.typ) {
+                                return Err(RuntimeError::TypeError {
+                                    expected: self.type_annotation_to_string(&field.typ),
+                                    got: value.type_name().to_string(),
+                                });
                             }
                         }
 
@@ -1166,10 +1175,28 @@ impl Evaluator {
             AstNode::Range { start, end } => {
                 let start_val = self.eval_node(start)?;
                 let end_val = self.eval_node(end)?;
-                Ok(Value::Range {
-                    start: Box::new(start_val),
-                    end: Box::new(end_val),
-                })
+
+                // Validate that both start and end are Numbers
+                match (&start_val, &end_val) {
+                    (Value::Number(_), Value::Number(_)) => {
+                        Ok(Value::Range {
+                            start: Box::new(start_val),
+                            end: Box::new(end_val),
+                        })
+                    }
+                    (Value::Number(_), _) => {
+                        Err(RuntimeError::TypeError {
+                            expected: "Number".to_string(),
+                            got: end_val.type_name().to_string(),
+                        })
+                    }
+                    (_, _) => {
+                        Err(RuntimeError::TypeError {
+                            expected: "Number".to_string(),
+                            got: start_val.type_name().to_string(),
+                        })
+                    }
+                }
             }
 
             // === Expression Statement ===
@@ -1465,6 +1492,54 @@ impl Evaluator {
                 expected: "Number".to_string(),
                 got: val.type_name().to_string(),
             }),
+        }
+    }
+
+    /// Check if a runtime value matches a type annotation
+    /// Returns true if the value conforms to the type, false otherwise
+    fn value_matches_type(&self, value: &Value, type_ann: &TypeAnnotation) -> bool {
+        match (value, type_ann) {
+            // Basic type matching
+            (Value::Number(_), TypeAnnotation::Named(name)) if name == "Number" => true,
+            (Value::Text(_), TypeAnnotation::Named(name)) if name == "Text" => true,
+            (Value::Truth(_), TypeAnnotation::Named(name)) if name == "Truth" => true,
+            (Value::Nothing, TypeAnnotation::Named(name)) if name == "Nothing" => true,
+            (Value::List(_), TypeAnnotation::Named(name)) if name == "List" => true,
+            (Value::Map(_), TypeAnnotation::Named(name)) if name == "Map" => true,
+            (Value::Map(_), TypeAnnotation::Map) => true,
+
+            // Struct instances match their struct name
+            (Value::StructInstance { struct_name, .. }, TypeAnnotation::Named(name))
+                if struct_name == name => true,
+
+            // Generic type parameters match anything (they're type variables)
+            (_, TypeAnnotation::Generic(_)) => true,
+
+            // List type matching with element type checking would require recursive validation
+            // For now, accept any List for List types
+            (Value::List(_), TypeAnnotation::List(_)) => true,
+            (Value::List(_), TypeAnnotation::Parametrized { name, .. }) if name == "List" => true,
+
+            // Function/Chant type matching
+            (Value::Chant { .. }, TypeAnnotation::Function { .. }) => true,
+            (Value::Chant { .. }, TypeAnnotation::Named(name)) if name == "Function" => true,
+            (Value::NativeChant(_), TypeAnnotation::Function { .. }) => true,
+            (Value::NativeChant(_), TypeAnnotation::Named(name)) if name == "Function" => true,
+
+            // Outcome/Maybe types
+            (Value::Outcome { .. }, TypeAnnotation::Named(name)) if name == "Outcome" => true,
+            (Value::Outcome { .. }, TypeAnnotation::Parametrized { name, .. }) if name == "Outcome" => true,
+            (Value::Maybe { .. }, TypeAnnotation::Named(name)) if name == "Maybe" => true,
+            (Value::Maybe { .. }, TypeAnnotation::Parametrized { name, .. }) if name == "Maybe" => true,
+
+            // Range type
+            (Value::Range { .. }, TypeAnnotation::Named(name)) if name == "Range" => true,
+
+            // Iterator type
+            (Value::Iterator { .. }, TypeAnnotation::Named(name)) if name == "Iterator" => true,
+
+            // Default: no match
+            _ => false,
         }
     }
 
@@ -1945,5 +2020,187 @@ e
             }
             _ => panic!("Expected StructInstance, got {:?}", result),
         }
+    }
+
+    #[test]
+    fn test_range_type_validation_start_not_number() {
+        // Range with non-numeric start should fail immediately
+        let source = r#"
+bind r to range("hello", 10)
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Expected error for non-numeric range start");
+
+        let err = result.unwrap_err();
+        match err {
+            RuntimeError::TypeError { expected, got } => {
+                assert_eq!(expected, "Number");
+                assert_eq!(got, "Text");
+            }
+            _ => panic!("Expected TypeError, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_range_type_validation_end_not_number() {
+        // Range with non-numeric end should fail immediately
+        let source = r#"
+bind r to range(1, "hello")
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Expected error for non-numeric range end");
+
+        let err = result.unwrap_err();
+        match err {
+            RuntimeError::TypeError { expected, got } => {
+                assert_eq!(expected, "Number");
+                assert_eq!(got, "Text");
+            }
+            _ => panic!("Expected TypeError, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_range_type_validation_both_not_numbers() {
+        // Range with non-numeric start and end should fail on start
+        let source = r#"
+bind r to range("hello", "world")
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Expected error for non-numeric range values");
+
+        let err = result.unwrap_err();
+        match err {
+            RuntimeError::TypeError { expected, got } => {
+                assert_eq!(expected, "Number");
+                assert_eq!(got, "Text");
+            }
+            _ => panic!("Expected TypeError, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_range_valid() {
+        // Valid range should work
+        let source = r#"
+bind r to range(1, 5)
+weave count as 0
+for each n in r then
+    set count to count + 1
+end
+count
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+        assert_eq!(result, Value::Number(4.0));  // range(1, 5) = [1, 2, 3, 4]
+    }
+
+    #[test]
+    fn test_struct_field_type_validation_number() {
+        // Struct field with wrong type (Text instead of Number) should fail
+        let source = r#"
+form Person with
+    name as Text
+    age as Number
+end
+
+bind p to Person { name: "Alice", age: "thirty" }
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Expected type error for wrong field type");
+
+        let err = result.unwrap_err();
+        match err {
+            RuntimeError::TypeError { expected, got } => {
+                assert_eq!(expected, "Number");
+                assert_eq!(got, "Text");
+            }
+            _ => panic!("Expected TypeError, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_struct_field_type_validation_text() {
+        // Struct field with wrong type (Number instead of Text) should fail
+        let source = r#"
+form Person with
+    name as Text
+    age as Number
+end
+
+bind p to Person { name: 42, age: 30 }
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Expected type error for wrong field type");
+
+        let err = result.unwrap_err();
+        match err {
+            RuntimeError::TypeError { expected, got } => {
+                assert_eq!(expected, "Text");
+                assert_eq!(got, "Number");
+            }
+            _ => panic!("Expected TypeError, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_struct_field_type_validation_correct() {
+        // Struct with correct types should succeed
+        let source = r#"
+form Person with
+    name as Text
+    age as Number
+end
+
+bind p to Person { name: "Bob", age: 25 }
+p.age
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+        assert_eq!(result, Value::Number(25.0));
+    }
+
+    #[test]
+    fn test_struct_field_type_validation_list() {
+        // Struct with List type validation
+        let source = r#"
+form Team with
+    name as Text
+    members as List
+end
+
+bind t to Team { name: "Engineers", members: [1, 2, 3] }
+t.name
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+        assert_eq!(result, Value::Text("Engineers".to_string()));
+    }
+
+    #[test]
+    fn test_struct_field_type_validation_nested_struct() {
+        // Struct with another struct as a field
+        let source = r#"
+form Address with
+    city as Text
+end
+
+form Person with
+    name as Text
+    address as Address
+end
+
+bind addr to Address { city: "Seattle" }
+bind p to Person { name: "Alice", address: addr }
+p.address.city
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+        assert_eq!(result, Value::Text("Seattle".to_string()));
     }
 }

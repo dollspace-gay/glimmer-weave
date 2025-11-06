@@ -33,6 +33,11 @@ pub enum VmError {
     DivisionByZero,
     /// Out of bounds access
     OutOfBounds,
+    /// Field not found on object
+    FieldNotFound {
+        field: String,
+        object: String,
+    },
 }
 
 pub type VmResult<T> = Result<T, VmError>;
@@ -308,10 +313,21 @@ impl VM {
                     match &self.registers[map as usize] {
                         Value::Map(fields) => {
                             let value = fields.get(&field_name)
-                                .unwrap_or(&Value::Nothing);
+                                .ok_or_else(|| VmError::FieldNotFound {
+                                    field: field_name.clone(),
+                                    object: "Map".to_string(),
+                                })?;
                             self.registers[dest as usize] = value.clone();
                         }
-                        _ => return Err(VmError::TypeError("GetField on non-map".to_string())),
+                        Value::StructInstance { struct_name, fields } => {
+                            let value = fields.get(&field_name)
+                                .ok_or_else(|| VmError::FieldNotFound {
+                                    field: field_name.clone(),
+                                    object: struct_name.clone(),
+                                })?;
+                            self.registers[dest as usize] = value.clone();
+                        }
+                        _ => return Err(VmError::TypeError("GetField on non-map/struct".to_string())),
                     }
                 }
 
@@ -620,4 +636,40 @@ mod tests {
         let result = run_source("bind x to 42\nx").expect("VM failed");
         assert_eq!(result, Value::Number(42.0));
     }
+
+    #[test]
+    fn test_vm_map_field_not_found() {
+        // Map field access with missing field should error, not return Nothing
+        let source = r#"
+bind m to {name: "Alice"}
+m.age
+        "#;
+
+        let result = run_source(source);
+        assert!(result.is_err(), "Expected error for missing map field");
+
+        match result.unwrap_err() {
+            VmError::FieldNotFound { field, object } => {
+                assert_eq!(field, "age");
+                assert_eq!(object, "Map");
+            }
+            err => panic!("Expected FieldNotFound error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_vm_map_field_exists() {
+        // Valid map field access should work
+        let source = r#"
+bind m to {name: "Alice"}
+m.name
+        "#;
+
+        let result = run_source(source).expect("VM failed");
+        assert_eq!(result, Value::Text("Alice".to_string()));
+    }
+
+    // Note: Struct field access tests are in the interpreter tests.
+    // VM GetField now supports structs, but full struct compilation is still being developed.
+    // The GetField instruction correctly handles StructInstance values when they are present.
 }

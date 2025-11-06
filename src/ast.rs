@@ -67,6 +67,21 @@ pub struct VariantCase {
     pub fields: Vec<Parameter>,  // Fields if this variant carries data
 }
 
+/// Trait method signature
+///
+/// Represents a method signature in a trait definition.
+/// Unlike regular functions, trait methods are declarations without implementations.
+///
+/// Examples:
+/// - `chant show(self) -> Text` - method returning Text
+/// - `chant add(self, item: T)` - method with parameter
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,  // First parameter must be 'self'
+    pub return_type: Option<TypeAnnotation>,
+}
+
 impl Parameter {
     /// Create a parameter without type annotation (for backward compatibility)
     pub fn untyped(name: String) -> Self {
@@ -150,6 +165,23 @@ pub enum AstNode {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T"]
         variants: Vec<VariantCase>,
+    },
+
+    /// Trait definition: `aspect Display then chant show(self) -> Text end`
+    /// or with generics: `aspect Container<T> then chant add(self, item: T) end`
+    AspectDef {
+        name: String,
+        type_params: Vec<String>,  // Generic type parameters like ["T"]
+        methods: Vec<TraitMethod>,
+    },
+
+    /// Trait implementation: `embody Display for Number then chant show(self) -> Text then ... end end`
+    /// or with generic trait: `embody Container<Number> for NumberList then ... end`
+    EmbodyStmt {
+        aspect_name: String,
+        type_args: Vec<TypeAnnotation>,  // Type arguments for generic traits
+        target_type: TypeAnnotation,
+        methods: Vec<AstNode>,  // ChantDef nodes
     },
 
     /// Return statement: `yield result`
@@ -380,6 +412,8 @@ impl AstNode {
                 | AstNode::ChantDef { .. }
                 | AstNode::FormDef { .. }
                 | AstNode::VariantDef { .. }
+                | AstNode::AspectDef { .. }
+                | AstNode::EmbodyStmt { .. }
                 | AstNode::YieldStmt { .. }
                 | AstNode::MatchStmt { .. }
                 | AstNode::AttemptStmt { .. }

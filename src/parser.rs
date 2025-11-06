@@ -116,6 +116,8 @@ impl Parser {
             Token::Chant => self.parse_chant_def(),
             Token::Form => self.parse_form_def(),
             Token::Variant => self.parse_variant_def(),
+            Token::Aspect => self.parse_aspect_def(),
+            Token::Embody => self.parse_embody_stmt(),
             Token::Yield => self.parse_yield(),
             Token::Break => self.parse_break(),
             Token::Continue => self.parse_continue(),
@@ -633,6 +635,219 @@ impl Parser {
             name,
             type_params,
             variants,
+        })
+    }
+
+    /// Parse trait definition: aspect Display then chant show(self) -> Text end
+    /// or with generics: aspect Container<T> then chant add(self, item: T) end
+    fn parse_aspect_def(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Aspect)?;
+
+        let name = match self.current() {
+            Token::Ident(n) => n.clone(),
+            _ => {
+                return Err(ParseError {
+                    message: "Expected identifier after 'aspect'".to_string(),
+                    position: self.position,
+                })
+            }
+        };
+        self.advance();
+
+        // Parse optional generic type parameters: <T, U>
+        let type_params = if matches!(self.current(), Token::LeftAngle) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+
+            loop {
+                match self.current() {
+                    Token::Ident(param_name) => {
+                        params.push(param_name.clone());
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected type parameter name".to_string(),
+                            position: self.position,
+                        })
+                    }
+                }
+            }
+
+            self.expect(Token::RightAngle)?;
+            params
+        } else {
+            Vec::new()
+        };
+
+        self.expect(Token::Then)?;
+        self.skip_newlines();
+
+        // Parse trait method signatures
+        let mut methods = Vec::new();
+        while !matches!(self.current(), Token::End | Token::Eof) {
+            // Parse method signature: chant method_name(self, param: Type) -> ReturnType
+            self.expect(Token::Chant)?;
+
+            let method_name = match self.current() {
+                Token::Ident(n) => n.clone(),
+                _ => {
+                    return Err(ParseError {
+                        message: "Expected method name in aspect".to_string(),
+                        position: self.position,
+                    })
+                }
+            };
+            self.advance();
+
+            self.expect(Token::LeftParen)?;
+
+            // Parse parameters (first must be 'self')
+            let mut params = Vec::new();
+
+            // Parse first parameter (must be 'self')
+            match self.current() {
+                Token::Ident(name) if name == "self" => {
+                    params.push(Parameter {
+                        name: "self".to_string(),
+                        typ: None, // self type is inferred
+                    });
+                    self.advance();
+                }
+                _ => {
+                    return Err(ParseError {
+                        message: "Trait methods must have 'self' as first parameter".to_string(),
+                        position: self.position,
+                    })
+                }
+            }
+
+            // Parse remaining parameters
+            while matches!(self.current(), Token::Comma) {
+                self.advance(); // consume comma
+
+                if matches!(self.current(), Token::RightParen) {
+                    break; // Trailing comma
+                }
+
+                let param_name = match self.current() {
+                    Token::Ident(n) => n.clone(),
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected parameter name".to_string(),
+                            position: self.position,
+                        })
+                    }
+                };
+                self.advance();
+
+                // Optional type annotation
+                let typ = if matches!(self.current(), Token::Colon) {
+                    self.advance();
+                    Some(self.parse_type_annotation()?)
+                } else {
+                    None
+                };
+
+                params.push(Parameter { name: param_name, typ });
+            }
+
+            self.expect(Token::RightParen)?;
+
+            // Parse optional return type
+            let return_type = if matches!(self.current(), Token::Arrow) {
+                self.advance();
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+
+            methods.push(TraitMethod {
+                name: method_name,
+                params,
+                return_type,
+            });
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::End)?;
+
+        Ok(AstNode::AspectDef {
+            name,
+            type_params,
+            methods,
+        })
+    }
+
+    /// Parse trait implementation: embody Display for Number then chant show(self) -> Text then ... end end
+    /// or with generic trait: embody Container<Number> for NumberList then ... end
+    fn parse_embody_stmt(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Embody)?;
+
+        // Parse aspect name
+        let aspect_name = match self.current() {
+            Token::Ident(n) => n.clone(),
+            _ => {
+                return Err(ParseError {
+                    message: "Expected aspect name after 'embody'".to_string(),
+                    position: self.position,
+                })
+            }
+        };
+        self.advance();
+
+        // Parse optional type arguments: <Number, Text>
+        let type_args = if matches!(self.current(), Token::LeftAngle) {
+            self.advance(); // consume <
+            let mut args = Vec::new();
+
+            loop {
+                args.push(self.parse_type_annotation()?);
+
+                if matches!(self.current(), Token::Comma) {
+                    self.advance(); // consume comma
+                } else {
+                    break;
+                }
+            }
+
+            self.expect(Token::RightAngle)?;
+            args
+        } else {
+            Vec::new()
+        };
+
+        self.expect(Token::For)?;
+
+        // Parse target type
+        let target_type = self.parse_type_annotation()?;
+
+        self.expect(Token::Then)?;
+        self.skip_newlines();
+
+        // Parse method implementations (full ChantDef nodes)
+        let mut methods = Vec::new();
+        while !matches!(self.current(), Token::End | Token::Eof) {
+            // Parse method implementation
+            let method = self.parse_chant_def()?;
+            methods.push(method);
+            self.skip_newlines();
+        }
+
+        self.expect(Token::End)?;
+
+        Ok(AstNode::EmbodyStmt {
+            aspect_name,
+            type_args,
+            target_type,
+            methods,
         })
     }
 

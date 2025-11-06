@@ -165,6 +165,8 @@ pub enum SemanticError {
     NonExhaustiveMatch {
         message: String,
     },
+    /// Custom error message (for trait system and other features)
+    Custom(String),
 }
 
 /// Symbol in the symbol table
@@ -263,6 +265,32 @@ impl SymbolTable {
     }
 }
 
+/// Trait definition information
+#[derive(Debug, Clone)]
+struct TraitDefinition {
+    name: String,
+    type_params: Vec<String>,
+    methods: Vec<TraitMethod>,
+}
+
+/// Trait implementation key for lookup
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct TraitImplKey {
+    aspect_name: String,
+    /// Normalized string representation of target type
+    target_type: String,
+}
+
+/// Trait implementation information
+#[derive(Debug, Clone)]
+struct TraitImplementation {
+    aspect_name: String,
+    type_args: Vec<TypeAnnotation>,
+    target_type: TypeAnnotation,
+    /// Map of method name to method implementation
+    methods: BTreeMap<String, AstNode>,
+}
+
 /// Semantic analyzer state
 pub struct SemanticAnalyzer {
     symbol_table: SymbolTable,
@@ -273,6 +301,10 @@ pub struct SemanticAnalyzer {
     type_params_stack: Vec<BTreeMap<String, Type>>,
     /// Type inference engine (optional - can be enabled/disabled)
     type_inference: Option<crate::type_inference::TypeInference>,
+    /// Trait definitions registry
+    trait_definitions: BTreeMap<String, TraitDefinition>,
+    /// Trait implementations registry (aspect_name, target_type) -> implementation
+    trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
 }
 
 impl SemanticAnalyzer {
@@ -284,6 +316,8 @@ impl SemanticAnalyzer {
             errors: Vec::new(),
             type_params_stack: Vec::new(),
             type_inference: None,  // Disabled by default
+            trait_definitions: BTreeMap::new(),
+            trait_implementations: BTreeMap::new(),
         };
 
         // Register builtin functions
@@ -375,6 +409,29 @@ impl SemanticAnalyzer {
             }
         }
         None
+    }
+
+    /// Convert a TypeAnnotation to a normalized string for trait implementation lookups
+    fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
+        match ann {
+            TypeAnnotation::Named(name) => name.clone(),
+            TypeAnnotation::Generic(name) => name.clone(),
+            TypeAnnotation::List(inner) => {
+                format!("List<{}>", self.type_annotation_to_string(inner))
+            }
+            TypeAnnotation::Parametrized { name, type_args } => {
+                let args: Vec<String> = type_args
+                    .iter()
+                    .map(|arg| self.type_annotation_to_string(arg))
+                    .collect();
+                format!("{}<{}>", name, args.join(", "))
+            }
+            TypeAnnotation::Map => "Map".to_string(),
+            TypeAnnotation::Function { .. } => "Function".to_string(),
+            TypeAnnotation::Optional(inner) => {
+                format!("{}?", self.type_annotation_to_string(inner))
+            }
+        }
     }
 
     /// Register builtin runtime library functions
@@ -676,6 +733,113 @@ impl SemanticAnalyzer {
                 if !type_params.is_empty() {
                     self.pop_type_params();
                 }
+
+                Type::Nothing
+            }
+
+            AstNode::AspectDef { name, type_params, methods } => {
+                // Phase 2: Store trait definition and validate
+
+                // Check for duplicate trait definition
+                if self.trait_definitions.contains_key(name) {
+                    self.errors.push(SemanticError::DuplicateDefinition(name.clone()));
+                }
+
+                // Validate trait methods
+                for method in methods {
+                    // Check that first parameter is 'self'
+                    if method.params.is_empty() {
+                        self.errors.push(SemanticError::Custom(
+                            format!("Trait method '{}' must have 'self' as first parameter", method.name)
+                        ));
+                    } else if method.params[0].name != "self" {
+                        self.errors.push(SemanticError::Custom(
+                            format!("Trait method '{}' must have 'self' as first parameter, got '{}'",
+                                    method.name, method.params[0].name)
+                        ));
+                    }
+                }
+
+                // Store trait definition
+                self.trait_definitions.insert(name.clone(), TraitDefinition {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    methods: methods.clone(),
+                });
+
+                // Define trait name in symbol table for name resolution
+                if let Err(e) = self.symbol_table.define(name.clone(), Type::Any, false) {
+                    self.errors.push(e);
+                }
+
+                Type::Nothing
+            }
+
+            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods } => {
+                // Phase 2: Validate and store trait implementation
+
+                // Check that the trait exists
+                let trait_def = if let Some(def) = self.trait_definitions.get(aspect_name) {
+                    def.clone()
+                } else {
+                    self.errors.push(SemanticError::UndefinedVariable(aspect_name.clone()));
+                    return Type::Nothing;
+                };
+
+                // Check type argument count matches trait's type parameters
+                if type_args.len() != trait_def.type_params.len() {
+                    self.errors.push(SemanticError::Custom(
+                        format!("Aspect '{}' expects {} type argument(s), got {}",
+                                aspect_name, trait_def.type_params.len(), type_args.len())
+                    ));
+                }
+
+                // Create implementation key
+                let impl_key = TraitImplKey {
+                    aspect_name: aspect_name.clone(),
+                    target_type: self.type_annotation_to_string(target_type),
+                };
+
+                // Check for duplicate implementation
+                if self.trait_implementations.contains_key(&impl_key) {
+                    self.errors.push(SemanticError::Custom(
+                        format!("Aspect '{}' is already implemented for type '{}'",
+                                aspect_name, impl_key.target_type)
+                    ));
+                }
+
+                // Collect implemented methods
+                let mut method_map = BTreeMap::new();
+                for method_node in methods {
+                    if let AstNode::ChantDef { name, .. } = method_node {
+                        method_map.insert(name.clone(), method_node.clone());
+                        // Note: We don't analyze method implementations here to avoid
+                        // adding them to the global symbol table. They will be analyzed
+                        // when the trait methods are actually called at runtime.
+                        // TODO: In Phase 3, analyze in a separate scope for better error checking
+                    }
+                }
+
+                // Verify all trait methods are implemented
+                for trait_method in &trait_def.methods {
+                    if !method_map.contains_key(&trait_method.name) {
+                        self.errors.push(SemanticError::Custom(
+                            format!("Missing method '{}' in embodiment of aspect '{}' for type '{}'",
+                                    trait_method.name, aspect_name, impl_key.target_type)
+                        ));
+                    } else {
+                        // TODO: Verify method signature matches trait definition
+                        // This would require comparing parameter types and return types
+                    }
+                }
+
+                // Store trait implementation
+                self.trait_implementations.insert(impl_key, TraitImplementation {
+                    aspect_name: aspect_name.clone(),
+                    type_args: type_args.clone(),
+                    target_type: target_type.clone(),
+                    methods: method_map,
+                });
 
                 Type::Nothing
             }

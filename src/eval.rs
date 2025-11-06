@@ -331,9 +331,38 @@ impl Environment {
     }
 }
 
+/// Trait definition information (runtime copy)
+#[derive(Debug, Clone)]
+struct TraitDefinition {
+    name: String,
+    type_params: Vec<String>,
+    methods: Vec<crate::ast::TraitMethod>,
+}
+
+/// Trait implementation key for lookup
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct TraitImplKey {
+    aspect_name: String,
+    target_type: String,  // Normalized string representation
+}
+
+/// Trait implementation information (runtime)
+#[derive(Debug, Clone)]
+struct TraitImplementation {
+    aspect_name: String,
+    type_args: Vec<TypeAnnotation>,
+    target_type: TypeAnnotation,
+    methods: BTreeMap<String, Vec<AstNode>>,  // method_name -> function body
+    method_params: BTreeMap<String, Vec<Parameter>>,  // method_name -> parameters
+}
+
 /// Evaluator executes Glimmer-Weave programs
 pub struct Evaluator {
     environment: Environment,
+    /// Trait definitions (aspect declarations)
+    trait_definitions: BTreeMap<String, TraitDefinition>,
+    /// Trait implementations (embody statements)
+    trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
 }
 
 impl Evaluator {
@@ -341,6 +370,8 @@ impl Evaluator {
     pub fn new() -> Self {
         let mut evaluator = Evaluator {
             environment: Environment::new(),
+            trait_definitions: BTreeMap::new(),
+            trait_implementations: BTreeMap::new(),
         };
 
         // Register builtin runtime library functions
@@ -686,6 +717,53 @@ impl Evaluator {
                 Ok(variant_def)
             }
 
+            AstNode::AspectDef { name, type_params, methods } => {
+                // Phase 3: Store trait definition in the runtime registry
+                let trait_def = TraitDefinition {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    methods: methods.clone(),
+                };
+                self.trait_definitions.insert(name.clone(), trait_def);
+                Ok(Value::Nothing)
+            }
+
+            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods } => {
+                // Phase 3: Store trait implementation in the runtime registry
+
+                // Create implementation key
+                let target_type_str = self.type_annotation_to_string(target_type);
+                let impl_key = TraitImplKey {
+                    aspect_name: aspect_name.clone(),
+                    target_type: target_type_str,
+                };
+
+                // Extract method bodies and parameters
+                let mut method_bodies = BTreeMap::new();
+                let mut method_params = BTreeMap::new();
+
+                for method_node in methods {
+                    if let AstNode::ChantDef { name, params, body, .. } = method_node {
+                        // Extract parameter names (skip 'self')
+                        let param_list = params.clone();
+                        method_params.insert(name.clone(), param_list);
+                        method_bodies.insert(name.clone(), body.clone());
+                    }
+                }
+
+                // Store the implementation
+                let trait_impl = TraitImplementation {
+                    aspect_name: aspect_name.clone(),
+                    type_args: type_args.clone(),
+                    target_type: target_type.clone(),
+                    methods: method_bodies,
+                    method_params,
+                };
+
+                self.trait_implementations.insert(impl_key, trait_impl);
+                Ok(Value::Nothing)
+            }
+
             AstNode::StructLiteral { struct_name, fields: field_values, .. } => {
                 // Look up the struct definition
                 let struct_def = self.environment.get(struct_name)?;
@@ -802,6 +880,75 @@ impl Evaluator {
 
             // === Function Calls ===
             AstNode::Call { callee, args, type_args } => {
+                // Phase 3: Check if this is a trait method call (object.method(...))
+                if let AstNode::FieldAccess { object, field } = callee.as_ref() {
+                    // Evaluate the object (the 'self' value)
+                    let self_value = self.eval_node(object)?;
+                    let self_type = self.value_type_string(&self_value);
+
+                    // Try to find a trait implementation for this type and method
+                    // Clone the method implementation data to avoid borrow conflicts
+                    let trait_method_impl = {
+                        let mut found: Option<(Vec<AstNode>, Vec<Parameter>)> = None;
+                        for (impl_key, trait_impl) in &self.trait_implementations {
+                            if impl_key.target_type == self_type {
+                                if let Some(method_body) = trait_impl.methods.get(field) {
+                                    let method_params = trait_impl.method_params.get(field)
+                                        .ok_or_else(|| RuntimeError::Custom(
+                                            alloc::format!("Trait method '{}' missing parameters", field)
+                                        ))?;
+                                    found = Some((method_body.clone(), method_params.clone()));
+                                    break;
+                                }
+                            }
+                        }
+                        found
+                    };
+
+                    if let Some((method_body, method_params)) = trait_method_impl {
+                        // Found a trait method! Execute it with self bound
+
+                        // Evaluate arguments
+                        let arg_vals: Result<Vec<Value>, RuntimeError> =
+                            args.iter().map(|arg| self.eval_node(arg)).collect();
+                        let arg_vals = arg_vals?;
+
+                        // Check arity (including self)
+                        if method_params.len() != arg_vals.len() + 1 {
+                            return Err(RuntimeError::ArityMismatch {
+                                expected: method_params.len() - 1,  // -1 for self
+                                got: arg_vals.len(),
+                            });
+                        }
+
+                        // Execute the trait method with self bound
+                        self.environment.push_scope();
+
+                        // Bind 'self' parameter
+                        self.environment.define("self".to_string(), self_value.clone());
+
+                        // Bind remaining parameters
+                        for (param, arg) in method_params.iter().skip(1).zip(arg_vals.iter()) {
+                            self.environment.define(param.name.clone(), arg.clone());
+                        }
+
+                        // Execute method body
+                        let result = self.eval(&method_body);
+
+                        // Restore environment
+                        self.environment.pop_scope();
+
+                        // Handle return
+                        return match result {
+                            Err(RuntimeError::Return(val)) => Ok(val),
+                            other => other,
+                        };
+                    }
+
+                    // Not a trait method, fall through to normal method call handling
+                }
+
+                // Normal function call (not a trait method)
                 let func = self.eval_node(callee)?;
                 let arg_vals: Result<Vec<Value>, RuntimeError> =
                     args.iter().map(|arg| self.eval_node(arg)).collect();
@@ -1278,6 +1425,42 @@ impl Evaluator {
                 expected: "Number".to_string(),
                 got: val.type_name().to_string(),
             }),
+        }
+    }
+
+    /// Convert TypeAnnotation to normalized string for trait impl lookup
+    fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
+        match ann {
+            TypeAnnotation::Named(name) => name.clone(),
+            TypeAnnotation::Generic(name) => name.clone(),
+            TypeAnnotation::List(inner) => {
+                alloc::format!("List<{}>", self.type_annotation_to_string(inner))
+            }
+            TypeAnnotation::Parametrized { name, type_args } => {
+                let args: Vec<String> = type_args
+                    .iter()
+                    .map(|arg| self.type_annotation_to_string(arg))
+                    .collect();
+                alloc::format!("{}<{}>", name, args.join(", "))
+            }
+            TypeAnnotation::Map => "Map".to_string(),
+            TypeAnnotation::Function { .. } => "Function".to_string(),
+            TypeAnnotation::Optional(inner) => {
+                alloc::format!("{}?", self.type_annotation_to_string(inner))
+            }
+        }
+    }
+
+    /// Get the type name of a runtime value for trait lookup
+    fn value_type_string(&self, value: &Value) -> String {
+        match value {
+            Value::Number(_) => "Number".to_string(),
+            Value::Text(_) => "Text".to_string(),
+            Value::Truth(_) => "Truth".to_string(),
+            Value::List(_) => "List".to_string(),  // TODO: Could be List<T> with element type
+            Value::Map(_) => "Map".to_string(),
+            Value::StructInstance { struct_name, .. } => struct_name.clone(),
+            _ => value.type_name().to_string(),
         }
     }
 }

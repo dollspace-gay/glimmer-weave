@@ -68,6 +68,10 @@ pub enum Token {
     Form,
     /// `variant` - Enum/ADT declaration
     Variant,
+    /// `aspect` - Trait declaration
+    Aspect,
+    /// `embody` - Trait implementation
+    Embody,
 
     /// `seek` - Query/search keyword
     Seek,
@@ -303,6 +307,8 @@ impl Token {
             Token::Yield => "yield",
             Token::Form => "form",
             Token::Variant => "variant",
+            Token::Aspect => "aspect",
+            Token::Embody => "embody",
             Token::Seek => "seek",
             Token::Where => "where",
             Token::By => "by",

@@ -341,6 +341,8 @@ impl Lexer {
             "yield" => Token::Yield,
             "form" => Token::Form,
             "variant" => Token::Variant,
+            "aspect" => Token::Aspect,
+            "embody" => Token::Embody,
             "seek" => Token::Seek,
             "where" => Token::Where,
             "by" => Token::By,

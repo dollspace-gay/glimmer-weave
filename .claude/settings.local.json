@@ -10,7 +10,9 @@
       "Bash(bd update:*)",
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
-      "Bash(1)"
+      "Bash(1)",
+      "Bash(bd view:*)",
+      "Bash(bd show:*)"
     ],
     "deny": [],
     "ask": []

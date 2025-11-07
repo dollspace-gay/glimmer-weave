@@ -3,12 +3,14 @@
 //! Standard library functions and utilities for Glimmer-Weave programs.
 //!
 //! This module provides builtin functions for:
-//! - String manipulation (length, slice, concat, upper, lower)
-//! - Math operations (abs, sqrt, pow, min, max, floor, ceil, round)
-//! - List operations (length, push, pop, reverse, sort)
-//! - Map operations (keys, values, has, remove)
-//! - Type conversion (to_text, to_number, to_truth)
-//! - I/O operations (print, println)
+//! - String manipulation (length, slice, concat, upper, lower, split, join, trim, replace, repeat, pad, reverse)
+//! - Math operations (abs, sqrt, pow, min, max, floor, ceil, round, sign, clamp, sin, cos, tan, log, exp)
+//! - List operations (length, push, pop, reverse, concat, slice, flatten, sum, product, min, max, contains)
+//! - Map operations (keys, values, has, size)
+//! - Type conversion (to_text, to_number, to_truth, type_of)
+//! - Outcome/Maybe helpers (is_triumph, expect_present, refine_triumph, etc.)
+//! - Iterator operations (iter, iter_next, iter_map, iter_filter, iter_fold, iter_collect, iter_take)
+//! - I/O operations (print, println - require kernel context)
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -20,7 +22,7 @@ use crate::eval::{Value, RuntimeError};
 mod math {
     // Use libm when the feature is enabled
     #[cfg(feature = "use_libm")]
-    pub use libm::{sqrt, pow, floor, ceil, round};
+    pub use libm::{sqrt, pow, floor, ceil, round, sin, cos, tan, log, exp};
 
     // Use std math functions when std is available (includes tests)
     // This is the default when use_libm feature is not enabled
@@ -38,6 +40,21 @@ mod math {
 
     #[cfg(not(feature = "use_libm"))]
     pub fn round(x: f64) -> f64 { x.round() }
+
+    #[cfg(not(feature = "use_libm"))]
+    pub fn sin(x: f64) -> f64 { x.sin() }
+
+    #[cfg(not(feature = "use_libm"))]
+    pub fn cos(x: f64) -> f64 { x.cos() }
+
+    #[cfg(not(feature = "use_libm"))]
+    pub fn tan(x: f64) -> f64 { x.tan() }
+
+    #[cfg(not(feature = "use_libm"))]
+    pub fn log(x: f64) -> f64 { x.ln() }
+
+    #[cfg(not(feature = "use_libm"))]
+    pub fn exp(x: f64) -> f64 { x.exp() }
 }
 
 /// Type signature for native function implementations
@@ -91,6 +108,12 @@ pub fn get_builtins() -> Vec<NativeFunction> {
         NativeFunction::new("starts_with", Some(2), string_starts_with),
         NativeFunction::new("ends_with", Some(2), string_ends_with),
         NativeFunction::new("contains", Some(2), string_contains),
+        NativeFunction::new("replace", Some(3), string_replace),
+        NativeFunction::new("char_at", Some(2), string_char_at),
+        NativeFunction::new("repeat", Some(2), string_repeat),
+        NativeFunction::new("pad_left", Some(3), string_pad_left),
+        NativeFunction::new("pad_right", Some(3), string_pad_right),
+        NativeFunction::new("reverse", Some(1), string_reverse),
 
         // === Math Functions ===
         NativeFunction::new("abs", Some(1), math_abs),
@@ -101,6 +124,13 @@ pub fn get_builtins() -> Vec<NativeFunction> {
         NativeFunction::new("floor", Some(1), math_floor),
         NativeFunction::new("ceil", Some(1), math_ceil),
         NativeFunction::new("round", Some(1), math_round),
+        NativeFunction::new("sign", Some(1), math_sign),
+        NativeFunction::new("clamp", Some(3), math_clamp),
+        NativeFunction::new("sin", Some(1), math_sin),
+        NativeFunction::new("cos", Some(1), math_cos),
+        NativeFunction::new("tan", Some(1), math_tan),
+        NativeFunction::new("log", Some(1), math_log),
+        NativeFunction::new("exp", Some(1), math_exp),
 
         // === List Functions ===
         NativeFunction::new("list_length", Some(1), list_length),
@@ -109,6 +139,15 @@ pub fn get_builtins() -> Vec<NativeFunction> {
         NativeFunction::new("list_reverse", Some(1), list_reverse),
         NativeFunction::new("list_first", Some(1), list_first),
         NativeFunction::new("list_last", Some(1), list_last),
+        NativeFunction::new("list_concat", Some(2), list_concat),
+        NativeFunction::new("list_slice", Some(3), list_slice),
+        NativeFunction::new("list_flatten", Some(1), list_flatten),
+        NativeFunction::new("list_sum", Some(1), list_sum),
+        NativeFunction::new("list_product", Some(1), list_product),
+        NativeFunction::new("list_min", Some(1), list_min),
+        NativeFunction::new("list_max", Some(1), list_max),
+        NativeFunction::new("list_contains", Some(2), list_contains),
+        NativeFunction::new("list_index_of", Some(2), list_index_of),
 
         // === Map Functions ===
         NativeFunction::new("map_keys", Some(1), map_keys),
@@ -370,6 +409,124 @@ fn string_contains(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
+fn string_replace(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Text(s), Value::Text(from), Value::Text(to)) => {
+            Ok(Value::Text(s.replace(from.as_str(), to.as_str())))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Text, Text, Text".to_string(),
+            got: format!("{}, {}, {}", args[0].type_name(), args[1].type_name(), args[2].type_name()),
+        }),
+    }
+}
+
+fn string_char_at(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Text(s), Value::Number(index)) => {
+            let index = *index as usize;
+            if index >= s.len() {
+                return Err(RuntimeError::IndexOutOfBounds {
+                    index,
+                    length: s.len(),
+                });
+            }
+            let ch = s.chars().nth(index).ok_or_else(|| RuntimeError::IndexOutOfBounds {
+                index,
+                length: s.len(),
+            })?;
+            Ok(Value::Text(ch.to_string()))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Text, Number".to_string(),
+            got: format!("{}, {}", args[0].type_name(), args[1].type_name()),
+        }),
+    }
+}
+
+fn string_repeat(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::Text(s), Value::Number(n)) => {
+            let n = *n as usize;
+            let mut result = String::new();
+            for _ in 0..n {
+                result.push_str(s);
+            }
+            Ok(Value::Text(result))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Text, Number".to_string(),
+            got: format!("{}, {}", args[0].type_name(), args[1].type_name()),
+        }),
+    }
+}
+
+fn string_pad_left(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Text(s), Value::Number(width), Value::Text(pad_char)) => {
+            let width = *width as usize;
+            if pad_char.len() != 1 {
+                return Err(RuntimeError::Custom("Pad character must be a single character".to_string()));
+            }
+            let pad_ch = pad_char.chars().next().unwrap();
+
+            if s.len() >= width {
+                Ok(Value::Text(s.clone()))
+            } else {
+                let mut result = String::new();
+                for _ in 0..(width - s.len()) {
+                    result.push(pad_ch);
+                }
+                result.push_str(s);
+                Ok(Value::Text(result))
+            }
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Text, Number, Text".to_string(),
+            got: format!("{}, {}, {}", args[0].type_name(), args[1].type_name(), args[2].type_name()),
+        }),
+    }
+}
+
+fn string_pad_right(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Text(s), Value::Number(width), Value::Text(pad_char)) => {
+            let width = *width as usize;
+            if pad_char.len() != 1 {
+                return Err(RuntimeError::Custom("Pad character must be a single character".to_string()));
+            }
+            let pad_ch = pad_char.chars().next().unwrap();
+
+            if s.len() >= width {
+                Ok(Value::Text(s.clone()))
+            } else {
+                let mut result = s.clone();
+                for _ in 0..(width - s.len()) {
+                    result.push(pad_ch);
+                }
+                Ok(Value::Text(result))
+            }
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Text, Number, Text".to_string(),
+            got: format!("{}, {}, {}", args[0].type_name(), args[1].type_name(), args[2].type_name()),
+        }),
+    }
+}
+
+fn string_reverse(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Text(s) => {
+            let reversed: String = s.chars().rev().collect();
+            Ok(Value::Text(reversed))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Text".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
 // ============================================================================
 // MATH FUNCTIONS
 // ============================================================================
@@ -466,6 +623,103 @@ fn math_round(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
+fn math_sign(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => {
+            let sign = if *n > 0.0 {
+                1.0
+            } else if *n < 0.0 {
+                -1.0
+            } else {
+                0.0
+            };
+            Ok(Value::Number(sign))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn math_clamp(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Number(value), Value::Number(min_val), Value::Number(max_val)) => {
+            if min_val > max_val {
+                return Err(RuntimeError::Custom("Clamp min must be <= max".to_string()));
+            }
+            let clamped = if *value < *min_val {
+                *min_val
+            } else if *value > *max_val {
+                *max_val
+            } else {
+                *value
+            };
+            Ok(Value::Number(clamped))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "Number, Number, Number".to_string(),
+            got: format!("{}, {}, {}", args[0].type_name(), args[1].type_name(), args[2].type_name()),
+        }),
+    }
+}
+
+fn math_sin(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => Ok(Value::Number(math::sin(*n))),
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn math_cos(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => Ok(Value::Number(math::cos(*n))),
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn math_tan(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => Ok(Value::Number(math::tan(*n))),
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn math_log(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => {
+            if *n <= 0.0 {
+                Err(RuntimeError::Custom("Cannot take log of non-positive number".to_string()))
+            } else {
+                Ok(Value::Number(math::log(*n)))
+            }
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn math_exp(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Number(n) => Ok(Value::Number(math::exp(*n))),
+        v => Err(RuntimeError::TypeError {
+            expected: "Number".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
 // ============================================================================
 // LIST FUNCTIONS
 // ============================================================================
@@ -547,6 +801,236 @@ fn list_last(args: &[Value]) -> Result<Value, RuntimeError> {
                 return Err(RuntimeError::Custom("Cannot get last element of empty list".to_string()));
             }
             Ok(l[l.len() - 1].clone())
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_concat(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1]) {
+        (Value::List(l1), Value::List(l2)) => {
+            let mut result = l1.clone();
+            result.extend(l2.clone());
+            Ok(Value::List(result))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "List, List".to_string(),
+            got: format!("{}, {}", args[0].type_name(), args[1].type_name()),
+        }),
+    }
+}
+
+fn list_slice(args: &[Value]) -> Result<Value, RuntimeError> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::List(l), Value::Number(start), Value::Number(end)) => {
+            let start = *start as usize;
+            let end = *end as usize;
+
+            if start > l.len() || end > l.len() || start > end {
+                return Err(RuntimeError::IndexOutOfBounds {
+                    index: if start > end { start } else { end },
+                    length: l.len(),
+                });
+            }
+
+            Ok(Value::List(l[start..end].to_vec()))
+        }
+        _ => Err(RuntimeError::TypeError {
+            expected: "List, Number, Number".to_string(),
+            got: format!("{}, {}, {}", args[0].type_name(), args[1].type_name(), args[2].type_name()),
+        }),
+    }
+}
+
+fn list_flatten(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            let mut result = Vec::new();
+            for item in l.iter() {
+                match item {
+                    Value::List(inner) => {
+                        result.extend(inner.clone());
+                    }
+                    other => {
+                        result.push(other.clone());
+                    }
+                }
+            }
+            Ok(Value::List(result))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_sum(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            let mut sum = 0.0;
+            for item in l.iter() {
+                match item {
+                    Value::Number(n) => sum += n,
+                    v => return Err(RuntimeError::TypeError {
+                        expected: "Number".to_string(),
+                        got: v.type_name().to_string(),
+                    }),
+                }
+            }
+            Ok(Value::Number(sum))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_product(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            let mut product = 1.0;
+            for item in l.iter() {
+                match item {
+                    Value::Number(n) => product *= n,
+                    v => return Err(RuntimeError::TypeError {
+                        expected: "Number".to_string(),
+                        got: v.type_name().to_string(),
+                    }),
+                }
+            }
+            Ok(Value::Number(product))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_min(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            if l.is_empty() {
+                return Err(RuntimeError::Custom("Cannot find min of empty list".to_string()));
+            }
+
+            let mut min_val = match &l[0] {
+                Value::Number(n) => *n,
+                v => return Err(RuntimeError::TypeError {
+                    expected: "Number".to_string(),
+                    got: v.type_name().to_string(),
+                }),
+            };
+
+            for item in l.iter().skip(1) {
+                match item {
+                    Value::Number(n) => {
+                        if *n < min_val {
+                            min_val = *n;
+                        }
+                    }
+                    v => return Err(RuntimeError::TypeError {
+                        expected: "Number".to_string(),
+                        got: v.type_name().to_string(),
+                    }),
+                }
+            }
+            Ok(Value::Number(min_val))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_max(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            if l.is_empty() {
+                return Err(RuntimeError::Custom("Cannot find max of empty list".to_string()));
+            }
+
+            let mut max_val = match &l[0] {
+                Value::Number(n) => *n,
+                v => return Err(RuntimeError::TypeError {
+                    expected: "Number".to_string(),
+                    got: v.type_name().to_string(),
+                }),
+            };
+
+            for item in l.iter().skip(1) {
+                match item {
+                    Value::Number(n) => {
+                        if *n > max_val {
+                            max_val = *n;
+                        }
+                    }
+                    v => return Err(RuntimeError::TypeError {
+                        expected: "Number".to_string(),
+                        got: v.type_name().to_string(),
+                    }),
+                }
+            }
+            Ok(Value::Number(max_val))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            let target = &args[1];
+            for item in l.iter() {
+                // Simple value equality check
+                let matches = match (item, target) {
+                    (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
+                    (Value::Text(a), Value::Text(b)) => a == b,
+                    (Value::Truth(a), Value::Truth(b)) => a == b,
+                    (Value::Nothing, Value::Nothing) => true,
+                    _ => false,
+                };
+                if matches {
+                    return Ok(Value::Truth(true));
+                }
+            }
+            Ok(Value::Truth(false))
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "List".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+fn list_index_of(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::List(l) => {
+            let target = &args[1];
+            for (i, item) in l.iter().enumerate() {
+                // Simple value equality check
+                let matches = match (item, target) {
+                    (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
+                    (Value::Text(a), Value::Text(b)) => a == b,
+                    (Value::Truth(a), Value::Truth(b)) => a == b,
+                    (Value::Nothing, Value::Nothing) => true,
+                    _ => false,
+                };
+                if matches {
+                    return Ok(Value::Number(i as f64));
+                }
+            }
+            // Return -1 if not found (Glimmer-Weave convention)
+            Ok(Value::Number(-1.0))
         }
         v => Err(RuntimeError::TypeError {
             expected: "List".to_string(),

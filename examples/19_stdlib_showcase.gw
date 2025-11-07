@@ -1,0 +1,184 @@
+# Glimmer-Weave Standard Library Showcase
+# Demonstrates the expanded standard library with string, math, and list operations
+
+# ============================================================================
+# STRING OPERATIONS
+# ============================================================================
+
+# String manipulation chain
+bind greeting to "  hello, world!  "
+bind trimmed to trim(greeting)
+bind capitalized to upper(trimmed)
+bind replaced to replace(capitalized, "WORLD", "GLIMMER")
+bind final_greeting to pad_left(replaced, 25, "*")
+
+# String analysis
+bind message to "Glimmer-Weave"
+bind first_char to char_at(message, 0)
+bind reversed to reverse(message)
+bind repeated to repeat("Hi! ", 3)
+
+# ============================================================================
+# MATH OPERATIONS
+# ============================================================================
+
+# Basic math with new functions
+bind angle to 0.5
+bind sine to sin(angle)
+bind cosine to cos(angle)
+
+# Verify Pythagorean identity: sin²(x) + cos²(x) = 1
+bind sin_squared to pow(sine, 2)
+bind cos_squared to pow(cosine, 2)
+bind identity to sin_squared + cos_squared
+
+# Math utilities
+bind value to -5.7
+bind absolute to abs(value)
+bind floored to floor(value)
+bind ceiled to ceil(value)
+bind rounded to round(value)
+bind sign_of to sign(value)
+
+# Clamping values to a range
+bind unclamped_low to -10
+bind unclamped_high to 100
+bind clamped_low to clamp(unclamped_low, 0, 50)
+bind clamped_high to clamp(unclamped_high, 0, 50)
+
+# Logarithms and exponentials
+bind e_power to exp(1)      # e^1 = e
+bind natural_log to log(e_power)  # ln(e) = 1
+
+# ============================================================================
+# LIST OPERATIONS
+# ============================================================================
+
+# List construction and manipulation
+bind numbers to [3, 1, 4, 1, 5, 9, 2, 6]
+bind more_numbers to [5, 3, 5, 8, 9, 7]
+bind combined to list_concat(numbers, more_numbers)
+
+# List slicing
+bind first_half to list_slice(numbers, 0, 4)
+bind second_half to list_slice(numbers, 4, 8)
+
+# List statistics
+bind total to list_sum(numbers)
+bind product to list_product([2, 3, 4])
+bind minimum to list_min(numbers)
+bind maximum to list_max(numbers)
+
+# List queries
+bind has_five to list_contains(numbers, 5)
+bind has_ten to list_contains(numbers, 10)
+bind position_of_nine to list_index_of(numbers, 9)
+bind position_of_seven to list_index_of(numbers, 7)
+
+# Nested list flattening
+bind nested to [[1, 2], [3, 4], [5, 6]]
+bind flattened to list_flatten(nested)
+bind flat_sum to list_sum(flattened)
+
+# ============================================================================
+# PRACTICAL EXAMPLES
+# ============================================================================
+
+# Example 1: Calculate average of a list
+chant average(lst) then
+    bind sum to list_sum(lst)
+    bind count to list_length(lst)
+    yield sum / count
+end
+
+bind test_scores to [85, 92, 78, 95, 88, 91]
+bind avg_score to average(test_scores)
+
+# Example 2: Format a string with padding
+chant format_number(num, width) then
+    bind text to to_text(num)
+    yield pad_left(text, width, "0")
+end
+
+bind formatted_id to format_number(42, 6)
+
+# Example 3: Calculate distance using math functions
+chant distance(x1, y1, x2, y2) then
+    bind dx to x2 - x1
+    bind dy to y2 - y1
+    bind dx_squared to pow(dx, 2)
+    bind dy_squared to pow(dy, 2)
+    bind sum_squared to dx_squared + dy_squared
+    yield sqrt(sum_squared)
+end
+
+bind point_distance to distance(0, 0, 3, 4)
+
+# Example 4: String transformation pipeline
+chant sanitize_input(text) then
+    bind step1 to trim(text)
+    bind step2 to lower(step1)
+    bind step3 to replace(step2, " ", "_")
+    yield step3
+end
+
+bind user_input to "  Hello World  "
+bind sanitized to sanitize_input(user_input)
+
+# Example 5: List range analysis
+chant analyze_range(lst) then
+    bind min_val to list_min(lst)
+    bind max_val to list_max(lst)
+    bind range to max_val - min_val
+    yield range
+end
+
+bind data_points to [10, 25, 15, 30, 20]
+bind data_range to analyze_range(data_points)
+
+# Example 6: Trigonometric calculations
+chant pythagorean_theorem(a, b) then
+    bind a_squared to pow(a, 2)
+    bind b_squared to pow(b, 2)
+    bind c_squared to a_squared + b_squared
+    yield sqrt(c_squared)
+end
+
+bind hypotenuse to pythagorean_theorem(3, 4)
+
+# ============================================================================
+# COMPLEX EXAMPLE: Data processing pipeline
+# ============================================================================
+
+chant process_measurements(measurements) then
+    # Remove outliers (values outside 1-100 range)
+    # Note: This is a simplified version; real implementation would use filter
+
+    bind total to list_sum(measurements)
+    bind count to list_length(measurements)
+    bind average to total / count
+
+    bind min_temp to list_min(measurements)
+    bind max_temp to list_max(measurements)
+    bind range to max_temp - min_temp
+
+    # Return a map-like list structure
+    yield [average, min_temp, max_temp, range]
+end
+
+bind temperature_readings to [20.5, 21.3, 19.8, 22.1, 20.9, 21.7]
+bind stats to process_measurements(temperature_readings)
+
+# ============================================================================
+# RESULTS
+# ============================================================================
+
+# Return a summary of all calculations
+[
+    final_greeting,
+    identity,
+    avg_score,
+    point_distance,
+    hypotenuse,
+    stats
+]

@@ -421,43 +421,25 @@ impl SemanticAnalyzer {
     ///
     /// This performs:
     /// 1. Constraint generation - walks AST and generates type requirements
-    /// 2. Harmonization (unification) - solves constraints to find types
-    /// 3. Type resolution - materializes final concrete types
+    /// 2. Unification - solves constraints to find types
+    /// 3. Type resolution - applies substitutions to get final types
     ///
-    /// Returns Ok(()) if inference succeeds, or TypeError if it fails.
-    pub fn infer_program_types(&mut self, nodes: &[AstNode]) -> Result<(), crate::type_inference::TypeError> {
-        use crate::type_inference::{ConstraintGenerator, Harmonizer};
+    /// Returns Ok(()) if inference succeeds, or error message if it fails.
+    pub fn infer_program_types(&mut self, nodes: &[AstNode]) -> Result<(), String> {
+        if let Some(inference_engine) = &mut self.type_inference {
+            // Run the type inference algorithm
+            inference_engine.infer_program(nodes)?;
 
-        if self.type_inference.is_none() {
-            // Type inference is disabled
-            return Ok(());
+            // Optionally: Update symbol table with inferred types
+            // for (var_name, var_type) in inference_engine.get_all_types() {
+            //     // Update symbol table if needed
+            // }
+
+            Ok(())
+        } else {
+            // Type inference is disabled - that's ok, just do nothing
+            Ok(())
         }
-
-        // Step 1: Generate constraints from AST
-        let mut generator = ConstraintGenerator::new();
-
-        // Walk through all nodes and generate constraints
-        for node in nodes {
-            let _inferred_type = generator.infer_expr(node);
-        }
-
-        let requirements = generator.take_requirements();
-
-        // Step 2: Harmonize (unify) all constraints
-        let mut harmonizer = Harmonizer::new();
-
-        for requirement in requirements.requirements() {
-            harmonizer.harmonize_at(&requirement.lhs, &requirement.rhs, &requirement.location)?;
-        }
-
-        // Step 3: Types are now solved!
-        // The harmonizer contains substitutions mapping type variables to concrete types
-        // In a full implementation, we would:
-        // - Apply substitutions to get final types
-        // - Update symbol table with inferred types
-        // - Check for unsolved type variables
-
-        Ok(())
     }
 
     /// Push a new type parameter context onto the stack

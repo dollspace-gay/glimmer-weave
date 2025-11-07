@@ -23,7 +23,9 @@
       "Bash(timeout 20 cargo test:*)",
       "Bash(bd close:*)",
       "Bash(cargo run:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(\"F:\\glimmer\\glimmer-weave\\target\\x86_64-pc-windows-msvc\\release\\glimmer-repl.exe\":*)",
+      "Bash(target/release/glimmer-repl.exe:*)"
     ],
     "deny": [],
     "ask": []

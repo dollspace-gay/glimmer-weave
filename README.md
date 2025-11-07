@@ -80,70 +80,94 @@ chant add_one(x) then yield x + 1 end
 git clone https://github.com/yourusername/glimmer-weave.git
 cd glimmer-weave
 
-# Build the project
+# Build the library
 cargo build --release
+
+# Build the REPL (interactive shell)
+cargo build --bin glimmer-repl --features repl --release
 
 # Run tests
 cargo test
 
-# The compiled library will be in target/release/
+# Compiled binaries are in target\release\
+# - Library: target\release\glimmer_weave.dll
+# - REPL: target\release\glimmer-repl.exe
 ```
 
-#### macOS
+#### macOS / Linux
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/glimmer-weave.git
 cd glimmer-weave
 
-# Build the project
+# Build the library
 cargo build --release
+
+# Build the REPL (interactive shell)
+cargo build --bin glimmer-repl --features repl --release
 
 # Run tests
 cargo test
 
-# The compiled library will be in target/release/
+# Compiled binaries are in target/release/
+# - Library: target/release/libglimmer_weave.so (Linux) or .dylib (macOS)
+# - REPL: target/release/glimmer-repl
 ```
 
-#### Linux
+**Note:** The `--features repl` flag is required when building the REPL, as it includes optional dependencies for line editing and history.
 
+### Binary Locations
+
+After building, you'll find the compiled binaries in standard locations:
+
+- **Release builds** (with `--release`): `target/release/`
+- **Debug builds** (without `--release`): `target/debug/`
+
+**Windows example:**
+```powershell
+# Run the REPL directly
+.\target\release\glimmer-repl.exe
+```
+
+**macOS/Linux example:**
 ```bash
-# Install Rust (if not already installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-
-# Clone the repository
-git clone https://github.com/yourusername/glimmer-weave.git
-cd glimmer-weave
-
-# Build the project
-cargo build --release
-
-# Run tests
-cargo test
-
-# The compiled library will be in target/release/
+# Run the REPL directly
+./target/release/glimmer-repl
 ```
 
 ### Development Build
 
-For faster compilation during development:
+For faster compilation during development (without optimizations):
 
 ```bash
+# Build library only
 cargo build
+
+# Build REPL for testing
+cargo build --bin glimmer-repl --features repl
+
+# Run tests
 cargo test
 ```
 
 ### Running the REPL
 
-Glimmer-Weave includes an interactive REPL (Read-Eval-Print Loop) for rapid prototyping and testing:
+Glimmer-Weave includes an interactive REPL (Read-Eval-Print Loop) for rapid prototyping and testing.
+
+**Quick start:**
 
 ```bash
-# Run the REPL
+# Run directly (compiles and runs)
 cargo run --bin glimmer-repl --features repl
 
-# Or build and run separately
+# Or build once and run multiple times
 cargo build --bin glimmer-repl --features repl --release
+
+# Windows
+.\target\release\glimmer-repl.exe
+
+# macOS/Linux
 ./target/release/glimmer-repl
 ```
 
@@ -301,6 +325,25 @@ chant add(a, b) then
     yield a + b
 end
 
+# Variadic functions (accept any number of arguments)
+chant sum(...numbers) then
+    weave total as 0
+    for each n in numbers then
+        set total to total + n
+    end
+    yield total
+end
+
+bind result to sum(1, 2, 3, 4, 5)  # 15
+
+# Variadic with regular parameters
+chant format(template, ...values) then
+    # template is required, values can be 0 or more
+    yield [template, values]
+end
+
+bind formatted to format("User: %s", "Alice", "30")
+
 # Recursive function
 chant fibonacci(n) then
     should n <= 1 then
@@ -318,6 +361,7 @@ bind result to my_func(5, 3)  # 8
 **Keywords:**
 - `chant` - Define a function
 - `yield` - Return a value
+- `...` - Variadic parameter (collects remaining arguments into a list)
 
 ---
 
@@ -488,6 +532,8 @@ end
 
 ### 10. Built-in Functions
 
+Glimmer-Weave provides 21 built-in functions for common operations:
+
 #### List Operations
 
 ```glimmer-weave
@@ -496,6 +542,11 @@ list_push([1, 2], 3)             # [1, 2, 3]
 list_pop([1, 2, 3])              # [1, 2]
 list_first([1, 2, 3])            # 1
 list_last([1, 2, 3])             # 3
+list_slice([1, 2, 3, 4, 5], 1, 4) # [2, 3, 4]
+list_concat([1, 2], [3, 4])      # [1, 2, 3, 4]
+list_reverse([1, 2, 3])          # [3, 2, 1]
+list_contains([1, 2, 3], 2)      # true
+list_sum([1, 2, 3, 4, 5])        # 15.0
 ```
 
 #### String Operations
@@ -503,6 +554,20 @@ list_last([1, 2, 3])             # 3
 ```glimmer-weave
 to_text(42)                      # "42"
 text_length("hello")             # 5
+text_concat("Hello", " World")   # "Hello World"
+text_slice("hello", 1, 4)        # "ell"
+text_uppercase("hello")          # "HELLO"
+text_lowercase("HELLO")          # "hello"
+text_contains("hello", "ell")    # true
+```
+
+#### Math Operations
+
+```glimmer-weave
+math_floor(3.7)                  # 3.0
+math_ceil(3.2)                   # 4.0
+math_round(3.5)                  # 4.0
+math_abs(-5.3)                   # 5.3
 ```
 
 #### Iteration
@@ -770,11 +835,13 @@ For detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
 - Variables (immutable/mutable)
 - Control flow (if/else, loops)
 - Functions with tail-call optimization
+- Variadic functions (variable number of arguments)
 - Pattern matching
 - Custom types (structs)
 - Pipeline operator
 - Error handling
 - Built-in collections (lists, maps)
+- Expanded standard library (21 built-in functions)
 
 ### Planned Features 🚧
 
@@ -806,6 +873,7 @@ For detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
 | `set` | Assignment | `set counter to 10` |
 | `chant` | Define function | `chant add(a, b) then...end` |
 | `yield` | Return from function | `yield result` |
+| `...` | Variadic parameter | `chant sum(...numbers) then...end` |
 | `should` | If statement | `should x > 0 then...end` |
 | `otherwise` | Else clause | `otherwise...end` |
 | `for each` | For-each loop | `for each item in list then...end` |

@@ -2,9 +2,9 @@
 # Overrides workspace config to allow tests to run on host platform
 
 [build]
-# Use host target instead of custom x86_64-aethelos target
-# This allows tests to run with std library
-target = "x86_64-pc-windows-msvc"
+# Commented out to allow cargo to use the default host target
+# This builds binaries in target/release instead of target/<arch>/release
+# target = "x86_64-pc-windows-msvc"
 
 # DO NOT build std from source for tests - use pre-compiled std
 # This prevents duplicate lang item errors

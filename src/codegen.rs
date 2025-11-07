@@ -785,6 +785,67 @@ impl CodeGen {
                 Ok(())
             }
 
+            // === Module System (Phase 6: Native Codegen Support) ===
+
+            AstNode::ModuleDecl { name, body: _, exports: _ } => {
+                // Module declarations in native codegen require multi-file compilation
+                // and symbol export/import mechanisms at the assembly level.
+                //
+                // LIMITATION: Module system requires:
+                // - Multi-file compilation infrastructure
+                // - Symbol visibility control (.global, .local directives)
+                // - Module-level linkage and resolution
+                //
+                // Workaround: Use the interpreter or bytecode VM instead.
+                //
+                // This feature is fully supported in:
+                // - Tree-walking interpreter (eval.rs)
+                Err(format!(
+                    "Module declarations not supported in native codegen (multi-file compilation required). \
+                     Module: {}. Use interpreter or bytecode VM instead.",
+                    name
+                ))
+            }
+
+            AstNode::Import { module_name, path, items: _, alias: _ } => {
+                // Module imports in native codegen require runtime module resolution
+                // and dynamic symbol binding.
+                //
+                // LIMITATION: Module imports require:
+                // - Runtime module loader
+                // - Dynamic symbol resolution
+                // - Module dependency graph management
+                //
+                // Workaround: Use the interpreter or bytecode VM instead.
+                //
+                // This feature is fully supported in:
+                // - Tree-walking interpreter (eval.rs)
+                Err(format!(
+                    "Module imports not supported in native codegen (runtime module resolution required). \
+                     Attempted to import {} from {}. Use interpreter or bytecode VM instead.",
+                    module_name, path
+                ))
+            }
+
+            AstNode::Export { items } => {
+                // Export statements in native codegen require symbol export mechanisms
+                // at the assembly level (.global directives).
+                //
+                // LIMITATION: Exports require:
+                // - Symbol visibility control
+                // - Module declaration context (which is not supported)
+                //
+                // Workaround: Use the interpreter or bytecode VM instead.
+                //
+                // This feature is fully supported in:
+                // - Tree-walking interpreter (eval.rs)
+                Err(format!(
+                    "Module exports not supported in native codegen (symbol export infrastructure required). \
+                     Attempted to export: {:?}. Use interpreter or bytecode VM instead.",
+                    items
+                ))
+            }
+
             AstNode::RequestStmt { .. } => {
                 // Capability requests are not supported in native codegen
                 //
@@ -1363,6 +1424,29 @@ impl CodeGen {
 
                 // Result (heap pointer) is in %rax
                 Ok(())
+            }
+
+            // === Module System (Phase 6: Native Codegen Support) ===
+
+            AstNode::ModuleAccess { module, member } => {
+                // Module-qualified access in native codegen requires runtime symbol resolution
+                // and dynamic name lookup, which is not supported.
+                //
+                // LIMITATION: Module-qualified access requires:
+                // - Runtime symbol table
+                // - Dynamic name resolution
+                // - Module namespace management
+                //
+                // Workaround: Use the interpreter or bytecode VM instead.
+                //
+                // This feature is fully supported in:
+                // - Tree-walking interpreter (eval.rs)
+                // - Bytecode VM (vm.rs) with LoadGlobal instruction
+                Err(format!(
+                    "Module-qualified access not supported in native codegen (requires runtime symbol resolution). \
+                     Attempted to access {}.{}. Use interpreter or bytecode VM instead.",
+                    module, member
+                ))
             }
 
             _ => Err(format!("Expression codegen not implemented: {:?}", node))
@@ -2037,5 +2121,83 @@ mod tests {
         // Verify byte-by-byte copy
         assert!(asm_str.contains("(%r11"), "Should read from source");
         assert!(asm_str.contains("(%rax"), "Should write to destination");
+    }
+
+    // === Module System Tests (Phase 6: Native Codegen Support) ===
+
+    #[test]
+    fn test_module_declaration_unsupported() {
+        // Module declarations should return a clear error
+        let ast = vec![AstNode::ModuleDecl {
+            name: "Math".to_string(),
+            body: vec![],
+            exports: vec!["add".to_string()],
+        }];
+
+        let result = compile_to_asm(&ast);
+        assert!(result.is_err(), "Module declarations should fail in native codegen");
+
+        let err = result.unwrap_err();
+        assert!(err.contains("Module declarations not supported"), "Error should explain limitation");
+        assert!(err.contains("Math"), "Error should mention module name");
+        assert!(err.contains("multi-file compilation"), "Error should explain requirement");
+        assert!(err.contains("interpreter"), "Error should suggest workaround");
+    }
+
+    #[test]
+    fn test_import_unsupported() {
+        // Module imports should return a clear error
+        let ast = vec![AstNode::Import {
+            module_name: "Math".to_string(),
+            path: "std/math.gw".to_string(),
+            items: None,
+            alias: None,
+        }];
+
+        let result = compile_to_asm(&ast);
+        assert!(result.is_err(), "Module imports should fail in native codegen");
+
+        let err = result.unwrap_err();
+        assert!(err.contains("Module imports not supported"), "Error should explain limitation");
+        assert!(err.contains("Math"), "Error should mention module name");
+        assert!(err.contains("std/math.gw"), "Error should mention path");
+        assert!(err.contains("runtime module resolution"), "Error should explain requirement");
+        assert!(err.contains("interpreter"), "Error should suggest workaround");
+    }
+
+    #[test]
+    fn test_export_unsupported() {
+        // Export statements should return a clear error
+        let ast = vec![AstNode::Export {
+            items: vec!["add".to_string(), "mul".to_string()],
+        }];
+
+        let result = compile_to_asm(&ast);
+        assert!(result.is_err(), "Module exports should fail in native codegen");
+
+        let err = result.unwrap_err();
+        assert!(err.contains("Module exports not supported"), "Error should explain limitation");
+        assert!(err.contains("add"), "Error should mention exported items");
+        assert!(err.contains("symbol export"), "Error should explain requirement");
+        assert!(err.contains("interpreter"), "Error should suggest workaround");
+    }
+
+    #[test]
+    fn test_module_qualified_access_unsupported() {
+        // Module-qualified access should return a clear error
+        let ast = vec![AstNode::ModuleAccess {
+            module: "Math".to_string(),
+            member: "add".to_string(),
+        }];
+
+        let result = compile_to_asm(&ast);
+        assert!(result.is_err(), "Module-qualified access should fail in native codegen");
+
+        let err = result.unwrap_err();
+        assert!(err.contains("Module-qualified access not supported"), "Error should explain limitation");
+        assert!(err.contains("Math.add"), "Error should mention qualified name");
+        assert!(err.contains("runtime symbol resolution"), "Error should explain requirement");
+        assert!(err.contains("interpreter"), "Error should suggest workaround");
+        assert!(err.contains("bytecode VM"), "Error should suggest VM as alternative");
     }
 }

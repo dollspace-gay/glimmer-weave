@@ -70,6 +70,38 @@ pub mod bytecode_compiler;
 pub mod vm;
 pub mod monomorphize;
 pub mod type_inference;
+pub mod native_runtime;
+
+// Native allocator FFI (only available when compiled with GNU assembler)
+#[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
+pub mod native_allocator {
+    //! FFI bindings to the native heap allocator (gl_malloc/gl_free)
+    //!
+    //! This module is only available on x86_64 platforms with GNU assembler support.
+    //! The allocator is implemented in `src/native_allocator.S` and linked via build.rs.
+
+    extern "C" {
+        /// Allocate `size` bytes of memory on the heap
+        ///
+        /// Returns a pointer to the allocated memory, or NULL if allocation fails.
+        /// The returned pointer is guaranteed to be 8-byte aligned.
+        pub fn gl_malloc(size: usize) -> *mut u8;
+
+        /// Free memory previously allocated by gl_malloc
+        ///
+        /// If ptr is NULL, this is a no-op (safe).
+        pub fn gl_free(ptr: *mut u8);
+
+        /// Get the total number of bytes currently allocated
+        pub fn gl_get_allocated_bytes() -> u64;
+
+        /// Get the start address of the heap
+        pub fn gl_get_heap_start() -> *mut u8;
+
+        /// Get the end address of the heap
+        pub fn gl_get_heap_end() -> *mut u8;
+    }
+}
 
 // Re-export commonly used types
 pub use token::{Token, Span};

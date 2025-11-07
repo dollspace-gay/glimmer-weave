@@ -23,6 +23,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::format;
 use crate::ast::*;
+use crate::native_runtime::NativeRuntime;
 
 /// x86-64 register
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +130,15 @@ pub enum Instruction {
     /// Negate: neg dst
     Neg(String),
 
+    /// Increment: inc dst (dst++)
+    Inc(String),
+
+    /// Decrement: dec dst (dst--)
+    Dec(String),
+
+    /// Load effective address: leaq src, dst
+    Lea(String, String),
+
     /// Set if equal: sete dst (sets dst to 1 if ZF=1, else 0)
     Sete(String),
 
@@ -178,6 +188,9 @@ impl Instruction {
             Instruction::Xor(src, dst) => format!("    xorq {}, {}", src, dst),
             Instruction::Not(dst) => format!("    notq {}", dst),
             Instruction::Neg(dst) => format!("    negq {}", dst),
+            Instruction::Inc(dst) => format!("    incq {}", dst),
+            Instruction::Dec(dst) => format!("    decq {}", dst),
+            Instruction::Lea(src, dst) => format!("    leaq {}, {}", src, dst),
             Instruction::Sete(dst) => format!("    sete {}", dst),
             Instruction::Setne(dst) => format!("    setne {}", dst),
             Instruction::Setg(dst) => format!("    setg {}", dst),
@@ -208,6 +221,15 @@ pub struct CodeGen {
 
     /// Current function entry label (for TCO jumps)
     function_entry_label: Option<String>,
+
+    /// Native runtime support
+    runtime: NativeRuntime,
+
+    /// Struct definitions (name -> field list)
+    struct_defs: Vec<(String, Vec<crate::ast::StructField>)>,
+
+    /// String literals (label, data)
+    string_literals: Vec<(String, String)>,
 }
 
 impl Default for CodeGen {
@@ -226,6 +248,9 @@ impl CodeGen {
             variables: Vec::new(),
             current_function: None,
             function_entry_label: None,
+            runtime: NativeRuntime::new(),
+            struct_defs: Vec::new(),
+            string_literals: Vec::new(),
         }
     }
 
@@ -645,12 +670,10 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::FormDef { name, fields: _, .. } => {
-                // Struct definitions in native codegen require runtime support
-                // For now, we'll emit a placeholder that stores the struct definition
-                // as a global symbol (though it won't be fully functional)
+            AstNode::FormDef { name, fields, .. } => {
+                // Store struct definition for later use during struct instantiation
                 self.emit(Instruction::Comment(format!("Struct definition: {}", name)));
-                self.emit(Instruction::Comment("Note: Full struct support requires heap allocation runtime".to_string()));
+                self.struct_defs.push((name.clone(), fields.clone()));
                 Ok(())
             }
 
@@ -1216,25 +1239,130 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::StructLiteral { struct_name, fields: _, .. } => {
-                // Struct instantiation requires heap allocation runtime
+            AstNode::StructLiteral { struct_name, fields, .. } => {
+                // Allocate struct on heap and initialize fields
                 self.emit(Instruction::Comment(format!("Struct literal: {}", struct_name)));
-                self.emit(Instruction::Comment("Note: Struct instantiation requires heap allocation runtime".to_string()));
-                self.emit(Instruction::Comment("This feature is fully supported in interpreter and bytecode VM".to_string()));
 
-                // For now, return error
-                Err("Struct literals not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead.".to_string())
+                // Find struct definition and clone it to avoid borrow checker issues
+                let struct_fields = self.struct_defs.iter()
+                    .find(|(name, _)| name == struct_name)
+                    .map(|(_, fields)| fields.clone())
+                    .ok_or_else(|| format!("Undefined struct: {}", struct_name))?;
+
+                let field_count = struct_fields.len();
+
+                // Allocate heap memory for struct
+                let alloc_code = NativeRuntime::gen_struct_alloc(field_count);
+                for inst in alloc_code {
+                    self.emit(inst);
+                }
+
+                // Save struct pointer to rbx (we'll use it for field stores)
+                self.emit(Instruction::Mov(
+                    "%rax".to_string(),
+                    "%rbx".to_string()
+                ));
+
+                // Initialize each field
+                for (field_name, field_value) in fields.iter() {
+                    // Evaluate field value into rax
+                    self.gen_expr(field_value)?;
+
+                    // Find field index in struct definition
+                    let field_index = struct_fields.iter()
+                        .position(|f| f.name == *field_name)
+                        .ok_or_else(|| format!("Field {} not found in struct {}", field_name, struct_name))?;
+
+                    let store_code = NativeRuntime::gen_struct_field_store(field_index);
+                    for inst in store_code {
+                        self.emit(inst);
+                    }
+                }
+
+                // Move struct pointer back to rax (return value)
+                self.emit(Instruction::Mov(
+                    "%rbx".to_string(),
+                    "%rax".to_string()
+                ));
+
+                Ok(())
             }
 
             AstNode::FieldAccess { object, field } => {
-                // Field access on structs requires runtime type information and heap-allocated objects
+                // Field access on heap-allocated structs
                 self.emit(Instruction::Comment(format!("Field access: .{}", field)));
-                self.emit(Instruction::Comment("Note: Struct field access requires heap allocation runtime".to_string()));
-                self.emit(Instruction::Comment("This feature is fully supported in interpreter and bytecode VM".to_string()));
 
-                // For now, try to compile the object expression but return error
+                // Evaluate object expression to get struct pointer in rax
                 self.gen_expr(object)?;
-                Err("Struct field access not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead.".to_string())
+
+                // Determine struct type from object expression
+                // For now, we'll use a simplified approach:
+                // - If object is an identifier, look up its type in variables
+                // - If object is a struct literal, we know the type directly
+
+                // TODO: Full type tracking in codegen
+                // For MVP, we'll make a simplifying assumption:
+                // We'll search all struct definitions for a field with this name
+                // This works if field names are unique across structs
+
+                let mut field_index = None;
+                for (struct_name, struct_fields) in &self.struct_defs {
+                    if let Some(idx) = struct_fields.iter().position(|f| f.name == *field) {
+                        field_index = Some(idx);
+                        self.emit(Instruction::Comment(format!(
+                            "Assuming struct type: {} (field index: {})",
+                            struct_name, idx
+                        )));
+                        break;
+                    }
+                }
+
+                let field_index = field_index.ok_or_else(|| {
+                    format!("Field '{}' not found in any struct definition", field)
+                })?;
+
+                // Load field from struct
+                let load_code = NativeRuntime::gen_struct_field_load(field_index);
+                for inst in load_code {
+                    self.emit(inst);
+                }
+
+                Ok(())
+            }
+
+            AstNode::Text(s) => {
+                // String literal - allocate on heap with length prefix
+                self.emit(Instruction::Comment(format!("String literal: \"{}\"", s)));
+
+                // Generate unique label for string data
+                let string_label = format!(".L_string_data_{}", self.label_counter);
+                self.label_counter += 1;
+
+                // Store string data in .data section
+                // We'll emit data directive later in to_assembly()
+                // For now, store in string_literals vector
+                self.string_literals.push((string_label.clone(), s.clone()));
+
+                // Load string length into %r10
+                self.emit(Instruction::Mov(
+                    format!("${}", s.len()),
+                    "%r10".to_string()
+                ));
+
+                // Load address of string data into %r11 using LEA (load effective address)
+                self.emit(Instruction::Lea(
+                    format!("{}(%rip)", string_label),
+                    "%r11".to_string()
+                ));
+
+                // Allocate string on heap (length + data)
+                let alloc_code = NativeRuntime::gen_string_alloc();
+                for inst in alloc_code {
+                    self.emit(inst);
+                }
+
+                // Result (heap pointer) is in %rax
+                Ok(())
             }
 
             _ => Err(format!("Expression codegen not implemented: {:?}", node))
@@ -1245,9 +1373,23 @@ impl CodeGen {
     pub fn to_assembly(&self) -> String {
         let mut asm = String::new();
 
+        // .data section for string literals
+        if !self.string_literals.is_empty() {
+            asm.push_str(".data\n");
+            for (label, data) in &self.string_literals {
+                asm.push_str(&format!("{}:\n", label));
+                // Emit string as .ascii directive (not null-terminated)
+                asm.push_str(&format!("    .ascii \"{}\"\n", data));
+            }
+            asm.push_str("\n");
+        }
+
         // AT&T syntax header
         asm.push_str(".text\n");
         asm.push_str(".globl main\n\n");
+
+        // External declarations for runtime functions
+        asm.push_str(&NativeRuntime::gen_external_declarations());
 
         for inst in &self.instructions {
             asm.push_str(&inst.to_asm());
@@ -1794,5 +1936,106 @@ mod tests {
 
         // Should load from enum structure
         assert!(asm.contains("(%rax)"));
+    }
+
+    #[test]
+    fn test_compile_struct_codegen_produces_malloc_calls() {
+        // This test verifies that struct allocation infrastructure generates
+        // the expected heap allocation code, without needing to build complex AST manually.
+        // Since struct support is already implemented in codegen.rs (lines 1226-1315),
+        // we just need to verify the core code generation functions work.
+
+        use crate::native_runtime::NativeRuntime;
+
+        // Test 1: Verify gen_struct_alloc generates correct code
+        let alloc_code = NativeRuntime::gen_struct_alloc(2);
+        let asm_str = alloc_code.iter()
+            .map(|inst| format!("{:?}", inst))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(asm_str.contains("16") || asm_str.contains("$16"),
+                "Should allocate 16 bytes for 2 fields");
+        assert!(asm_str.contains("gl_malloc"),
+                "Should call gl_malloc");
+
+        // Test 2: Verify gen_struct_field_load generates correct offset
+        let load_code = NativeRuntime::gen_struct_field_load(1);
+        let load_asm = load_code.iter()
+            .map(|inst| format!("{:?}", inst))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(load_asm.contains("8") && load_asm.contains("rax"),
+                "Should load from offset 8 (field 1)");
+
+        // Test 3: Verify gen_struct_field_store generates correct offset
+        let store_code = NativeRuntime::gen_struct_field_store(1);
+        let store_asm = store_code.iter()
+            .map(|inst| format!("{:?}", inst))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(store_asm.contains("8") && store_asm.contains("rbx"),
+                "Should store to offset 8 (field 1)");
+    }
+
+    #[test]
+    fn test_compile_string_literal_codegen() {
+        use crate::ast::AstNode::Text;
+
+        // Test string literal generates correct code
+        let ast = vec![Text("Hello, World!".to_string())];
+
+        let result = compile_to_asm(&ast);
+        assert!(result.is_ok(), "String literal compilation failed: {:?}", result);
+        let asm = result.unwrap();
+
+        // Verify .data section is emitted
+        assert!(asm.contains(".data"), "Should have .data section");
+        assert!(asm.contains(".L_string_data_"), "Should have string label");
+        assert!(asm.contains(".ascii"), "Should use .ascii directive");
+        assert!(asm.contains("Hello, World!"), "Should contain string data");
+
+        // Verify code loads string length into %r10
+        assert!(asm.contains("$13") && asm.contains("%r10"),
+                "Should load length 13 into %r10");
+
+        // Verify code uses LEA to load string address
+        assert!(asm.contains("leaq"), "Should use leaq instruction");
+        assert!(asm.contains("%r11"), "Should load address into %r11");
+
+        // Verify code calls gl_malloc via gen_string_alloc
+        assert!(asm.contains("gl_malloc"), "Should call gl_malloc");
+    }
+
+    #[test]
+    fn test_string_allocation_runtime_codegen() {
+        // Test that gen_string_alloc generates complete memcpy code
+        use crate::native_runtime::NativeRuntime;
+
+        let alloc_code = NativeRuntime::gen_string_alloc();
+        let asm_str = alloc_code.iter()
+            .map(|inst| inst.to_asm())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Verify malloc call
+        assert!(asm_str.contains("gl_malloc"), "Should call gl_malloc");
+
+        // Verify length prefix is stored
+        assert!(asm_str.contains("0(%rax)"), "Should store length at offset 0");
+
+        // Verify memcpy loop exists
+        assert!(asm_str.contains(".L_string_copy_loop"), "Should have copy loop label");
+        assert!(asm_str.contains(".L_string_copy_done"), "Should have done label");
+
+        // Verify loop uses counter
+        assert!(asm_str.contains("%rcx"), "Should use rcx as counter");
+        assert!(asm_str.contains("incq"), "Should increment counter");
+
+        // Verify byte-by-byte copy
+        assert!(asm_str.contains("(%r11"), "Should read from source");
+        assert!(asm_str.contains("(%rax"), "Should write to destination");
     }
 }

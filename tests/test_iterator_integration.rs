@@ -1,5 +1,11 @@
 /// Integration tests for iterators with other language features (Phase 5)
 /// Tests iterators combined with structs, traits, pattern matching, and complex pipelines
+///
+/// IMPORTANT: These tests involve deep recursion and must be run sequentially to avoid
+/// stack overflow when multiple tests execute in parallel. Run with:
+/// ```
+/// cargo test --test test_iterator_integration -- --test-threads=1
+/// ```
 
 use glimmer_weave::{Evaluator, Lexer, Parser};
 

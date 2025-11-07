@@ -1,0 +1,54 @@
+# Makefile for heap allocator tests
+#
+# Usage:
+#   make -f Makefile.allocator        # Build test executable
+#   make -f Makefile.allocator test   # Build and run tests
+#   make -f Makefile.allocator clean  # Clean build artifacts
+
+CC = gcc
+CFLAGS = -Wall -Wextra -g -O2
+LDFLAGS =
+
+# Source files
+TEST_SRC = test_allocator.c
+ALLOCATOR_SRC = ../src/native_allocator.S
+
+# Output
+TEST_EXEC = test_allocator
+
+# Platform-specific settings
+ifeq ($(OS),Windows_NT)
+    TEST_EXEC = test_allocator.exe
+    RM = del /Q
+    RM_DIR = rmdir /S /Q
+else
+    RM = rm -f
+    RM_DIR = rm -rf
+endif
+
+# Default target
+all: $(TEST_EXEC)
+
+# Build test executable
+$(TEST_EXEC): $(TEST_SRC) $(ALLOCATOR_SRC)
+	@echo "Building allocator tests..."
+	$(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_SRC) $(ALLOCATOR_SRC) $(LDFLAGS)
+	@echo "Build complete: $(TEST_EXEC)"
+
+# Run tests
+test: $(TEST_EXEC)
+	@echo "Running allocator tests..."
+	./$(TEST_EXEC)
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning..."
+ifeq ($(OS),Windows_NT)
+	-$(RM) $(TEST_EXEC) 2>nul
+else
+	$(RM) $(TEST_EXEC)
+endif
+	@echo "Clean complete"
+
+# Phony targets
+.PHONY: all test clean

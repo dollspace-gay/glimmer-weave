@@ -26,7 +26,15 @@
       "Bash(echo:*)",
       "Bash(\"F:\\glimmer\\glimmer-weave\\target\\x86_64-pc-windows-msvc\\release\\glimmer-repl.exe\":*)",
       "Bash(target/release/glimmer-repl.exe:*)",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "Bash(cmd /c build_allocator_tests.bat:*)",
+      "Bash(where:*)",
+      "Bash(gcc:*)",
+      "Bash(wsl bash -c \"cd /mnt/f/glimmer/glimmer-weave && cargo test --test test_allocator_rust -- --nocapture\")",
+      "Bash(wsl bash:*)",
+      "Bash(wsl echo:*)",
+      "Bash(timeout 5 bash:*)",
+      "Bash(wsl --shutdown)"
     ],
     "deny": [],
     "ask": []

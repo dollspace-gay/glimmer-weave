@@ -1349,8 +1349,34 @@ impl Evaluator {
                 // No handler matched - propagate the error
                 Err(error)
             }
-            AstNode::RequestStmt { .. } => {
-                Err(RuntimeError::Custom("Capability requests not yet implemented".to_string()))
+            AstNode::RequestStmt { capability, justification } => {
+                // Capability-based security: Request permission to access a resource
+                //
+                // This creates an unforgeable capability token that represents permission
+                // to access the requested resource. The justification is attached for
+                // audit logging by the AethelOS kernel.
+                //
+                // In a production system, this would:
+                // 1. Ask the user/kernel for permission
+                // 2. Log the request with justification
+                // 3. Grant or deny based on security policy
+                //
+                // For now, we create the capability token (permission checking
+                // will be enforced by AethelOS when the capability is actually used)
+
+                // Extract resource name from the capability expression
+                // Note: We DON'T evaluate the expression, just extract its name
+                let resource = self.node_to_string(capability);
+
+                // Create capability token
+                // In a real system, this would be cryptographically signed by the kernel
+                Ok(Value::Capability {
+                    resource,
+                    permissions: vec![
+                        "access".to_string(),
+                        justification.clone(),
+                    ],
+                })
             }
             AstNode::Pipeline { stages } => {
                 // Pipeline: value | func1 | func2
@@ -1659,6 +1685,21 @@ impl Evaluator {
     /// Convert TypeAnnotation to normalized string for trait impl lookup
     fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
         type_annotation_to_string_helper(ann)
+    }
+
+    /// Convert AST node to string representation (for capability requests)
+    fn node_to_string(&self, node: &AstNode) -> String {
+        match node {
+            AstNode::Ident(name) => name.clone(),
+            AstNode::FieldAccess { object, field } => {
+                format!("{}.{}", self.node_to_string(object), field)
+            }
+            AstNode::Number(n) => n.to_string(),
+            AstNode::Text(s) => s.clone(),
+            AstNode::Truth(b) => b.to_string(),
+            AstNode::Nothing => "nothing".to_string(),
+            _ => "<expression>".to_string(),
+        }
     }
 }
 
@@ -2323,5 +2364,81 @@ p.address.city
 
         let result = eval_program(source).expect("Eval failed");
         assert_eq!(result, Value::Text("Seattle".to_string()));
+    }
+
+    #[test]
+    fn test_capability_request_simple() {
+        // Test simple capability request
+        let source = r#"
+request FileAccess with justification "logging"
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+
+        // Should return a Capability token
+        match result {
+            Value::Capability { resource, permissions } => {
+                assert_eq!(resource, "FileAccess");
+                assert!(permissions.contains(&"access".to_string()));
+                assert!(permissions.contains(&"logging".to_string()));
+            }
+            _ => panic!("Expected Capability, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_capability_request_field_access() {
+        // Test capability request with field access (e.g., VGA.write)
+        let source = r#"
+request VGA.write with justification "display output"
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+
+        // Should return a Capability token
+        match result {
+            Value::Capability { resource, permissions } => {
+                assert_eq!(resource, "VGA.write");
+                assert!(permissions.contains(&"access".to_string()));
+                assert!(permissions.contains(&"display output".to_string()));
+            }
+            _ => panic!("Expected Capability, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_capability_request_binding() {
+        // Test storing capability in a variable
+        let source = r#"
+bind vga_cap to request VGA.write with justification "UI rendering"
+vga_cap
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+
+        match result {
+            Value::Capability { resource, permissions } => {
+                assert_eq!(resource, "VGA.write");
+                assert!(permissions.iter().any(|p| p == "UI rendering"));
+            }
+            _ => panic!("Expected Capability, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_capability_request_nested_field() {
+        // Test capability with nested field access
+        let source = r#"
+request Console.VGA.write with justification "debug output"
+        "#;
+
+        let result = eval_program(source).expect("Eval failed");
+
+        match result {
+            Value::Capability { resource, .. } => {
+                assert_eq!(resource, "Console.VGA.write");
+            }
+            _ => panic!("Expected Capability, got {:?}", result),
+        }
     }
 }

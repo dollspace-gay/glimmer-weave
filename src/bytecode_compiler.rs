@@ -687,6 +687,29 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
+            AstNode::RequestStmt { capability, justification } => {
+                // Capability request: Create a capability token
+                //
+                // Extract the resource name from the capability expression
+                let resource = self.node_to_string(capability);
+
+                // Create capability constant
+                let cap_constant = Constant::Capability {
+                    resource,
+                    permissions: vec![
+                        "access".to_string(),
+                        justification.clone(),
+                    ],
+                };
+
+                // Load capability into a register
+                let dest = self.alloc_register()?;
+                let const_id = self.chunk.add_constant(cap_constant);
+                self.emit(Instruction::LoadConst { dest, constant_id: const_id }, 0);
+
+                Ok(Some(dest))
+            }
+
             AstNode::ExprStmt(expr) => {
                 let reg = self.compile_expr(expr)?;
                 // Don't free the register - return it as the result
@@ -1065,6 +1088,21 @@ impl BytecodeCompiler {
         }
 
         Err(CompileError::UndefinedVariable(name.to_string()))
+    }
+
+    /// Convert AST node to string representation (for capability requests)
+    fn node_to_string(&self, node: &AstNode) -> String {
+        match node {
+            AstNode::Ident(name) => name.clone(),
+            AstNode::FieldAccess { object, field } => {
+                format!("{}.{}", self.node_to_string(object), field)
+            }
+            AstNode::Number(n) => n.to_string(),
+            AstNode::Text(s) => s.clone(),
+            AstNode::Truth(b) => b.to_string(),
+            AstNode::Nothing => "nothing".to_string(),
+            _ => "<expression>".to_string(),
+        }
     }
 }
 

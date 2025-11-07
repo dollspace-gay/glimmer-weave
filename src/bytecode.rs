@@ -240,6 +240,11 @@ pub enum Constant {
         name: String,
         fields: Vec<crate::ast::StructField>,
     },
+    /// Capability token constant
+    Capability {
+        resource: String,
+        permissions: Vec<String>,
+    },
 }
 
 /// Compiled bytecode chunk
@@ -324,6 +329,7 @@ impl Constant {
             Constant::Truth(_) => "Truth",
             Constant::Nothing => "Nothing",
             Constant::StructDef { .. } => "StructDef",
+            Constant::Capability { .. } => "Capability",
         }
     }
 }

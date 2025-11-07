@@ -610,6 +610,10 @@ fn constant_to_value(constant: &Constant) -> Value {
             name: name.clone(),
             fields: fields.clone(),
         },
+        Constant::Capability { resource, permissions } => Value::Capability {
+            resource: resource.clone(),
+            permissions: permissions.clone(),
+        },
     }
 }
 

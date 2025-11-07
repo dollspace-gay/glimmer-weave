@@ -762,6 +762,23 @@ impl CodeGen {
                 Ok(())
             }
 
+            AstNode::RequestStmt { .. } => {
+                // Capability requests are not supported in native codegen
+                //
+                // LIMITATION: Capability tokens require runtime object creation
+                // and dynamic string storage, which is not yet implemented in the
+                // native x86-64 code generator.
+                //
+                // Workaround: Use the interpreter or bytecode VM instead.
+                //
+                // This feature is fully supported in:
+                // - Tree-walking interpreter (eval.rs)
+                // - Bytecode compiler + VM (bytecode_compiler.rs + vm.rs)
+                Err("Capability requests are not supported in native codegen. \
+                     Use interpreter or bytecode VM instead. \
+                     (Requires runtime object creation which is not yet implemented)".to_string())
+            }
+
             AstNode::ExprStmt(expr) => {
                 self.gen_expr(expr)?;
                 Ok(())

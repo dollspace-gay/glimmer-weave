@@ -1555,6 +1555,9 @@ impl Parser {
                 Ok(AstNode::Absent)
             }
 
+            // Capability request can be used as an expression
+            Token::Request => self.parse_request(),
+
             _ => Err(ParseError {
                 message: alloc::format!("Unexpected token: {:?}", self.current()),
                 position: self.position,

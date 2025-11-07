@@ -1,0 +1,142 @@
+# Glimmer-Weave Variadic Functions Example
+# Demonstrates variadic function syntax using the ... (ellipsis) operator
+# glimmer-weave-1uh: Variadic function support
+
+# ============================================================================
+# VARIADIC-ONLY FUNCTIONS
+# ============================================================================
+
+# Simple sum function that accepts any number of arguments
+chant sum(...numbers) then
+    weave total as 0
+    for each n in numbers then
+        set total to total + n
+    end
+    yield total
+end
+
+bind sum_result to sum(1, 2, 3, 4, 5)
+# Result: 15.0
+
+# Find maximum value among any number of arguments
+chant max(...values) then
+    weave current_max as values[0]
+    for each v in values then
+        should v greater than current_max then
+            set current_max to v
+        otherwise
+            nothing
+        end
+    end
+    yield current_max
+end
+
+bind max_value to max(3, 7, 2, 9, 1, 5)
+# Result: 9.0
+
+# Concatenate any number of strings
+chant concat(...strings) then
+    weave result as ""
+    for each s in strings then
+        set result to result + s
+    end
+    yield result
+end
+
+bind greeting to concat("Hello", " ", "from", " ", "Glimmer-Weave", "!")
+# Result: "Hello from Glimmer-Weave!"
+
+# ============================================================================
+# VARIADIC WITH REGULAR PARAMETERS
+# ============================================================================
+
+# Format function with template and variable number of values
+chant format(template, ...values) then
+    # Simple implementation: return template and values
+    yield [template, values]
+end
+
+bind formatted to format("User: %s, Age: %d", "Alice", 30)
+# Result: ["User: %s, Age: %d", ["Alice", 30]]
+
+# Create list with first, second, and rest
+chant make_list(first, second, ...rest) then
+    weave result as [first, second]
+    for each item in rest then
+        set result to list_push(result, item)
+    end
+    yield result
+end
+
+bind my_list to make_list(1, 2, 3, 4, 5)
+# Result: [1, 2, 3, 4, 5]
+
+# ============================================================================
+# PRACTICAL EXAMPLES
+# ============================================================================
+
+# Calculate average of any number of values
+chant average(...numbers) then
+    should list_length(numbers) is 0 then
+        yield 0
+    end
+
+    bind sum to list_sum(numbers)
+    bind count to list_length(numbers)
+    yield sum / count
+end
+
+bind avg_score to average(85, 92, 78, 95, 88, 91)
+# Result: 88.16666666666667
+
+# Find minimum value
+chant min(...values) then
+    weave current_min as values[0]
+    for each v in values then
+        should v less than current_min then
+            set current_min to v
+        otherwise
+            nothing
+        end
+    end
+    yield current_min
+end
+
+bind min_value to min(3, 7, 2, 9, 1, 5)
+# Result: 1.0
+
+# Create a list from arguments with a custom separator
+chant join(separator, ...items) then
+    should list_length(items) is 0 then
+        yield ""
+    end
+
+    weave result as to_text(items[0])
+    weave index as 1
+
+    whilst index less than list_length(items) then
+        set result to result + separator
+        set result to result + to_text(items[index])
+        set index to index + 1
+    end
+
+    yield result
+end
+
+bind joined to join(", ", "apple", "banana", "cherry", "date")
+# Result: "apple, banana, cherry, date"
+
+# ============================================================================
+# RETURN VALUES
+# ============================================================================
+
+# Return a summary of all examples
+[
+    sum_result,      # 15.0
+    max_value,       # 9.0
+    greeting,        # "Hello from Glimmer-Weave!"
+    my_list,         # [1, 2, 3, 4, 5]
+    avg_score,       # 88.16666666666667
+    min_value,       # 1.0
+    joined           # "apple, banana, cherry, date"
+]

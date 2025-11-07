@@ -282,6 +282,7 @@ impl Monomorphizer {
                 .map(|p| Parameter {
                     name: p.name.clone(),
                     typ: p.typ.as_ref().map(|t| self.substitute_type_annotation(t, &substitutions)),
+                    is_variadic: p.is_variadic,
                 })
                 .collect();
 
@@ -474,6 +475,7 @@ mod tests {
                 params: vec![Parameter {
                     name: "x".to_string(),
                     typ: Some(TypeAnnotation::Generic("T".to_string())),
+                    is_variadic: false,
                 }],
                 return_type: Some(TypeAnnotation::Generic("T".to_string())),
                 body: vec![AstNode::YieldStmt {

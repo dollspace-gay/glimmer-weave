@@ -504,7 +504,19 @@ impl Lexer {
 
             Some('.') => {
                 self.advance();
-                Token::Dot
+                // Check for ellipsis (...) for variadic parameters
+                if self.current_char == Some('.') {
+                    self.advance();
+                    if self.current_char == Some('.') {
+                        self.advance();
+                        Token::Ellipsis
+                    } else {
+                        // Only two dots - invalid, return Dot and continue
+                        Token::Dot
+                    }
+                } else {
+                    Token::Dot
+                }
             }
 
             Some('?') => {

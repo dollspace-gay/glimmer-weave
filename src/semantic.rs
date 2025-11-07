@@ -1424,6 +1424,7 @@ mod tests {
             params: vec![Parameter {
                 name: "x".to_string(),
                 typ: Some(TypeAnnotation::Generic("T".to_string())),
+                is_variadic: false,
             }],
             return_type: Some(TypeAnnotation::Generic("T".to_string())),
             body: vec![AstNode::YieldStmt {
@@ -1471,10 +1472,12 @@ mod tests {
                 Parameter {
                     name: "first".to_string(),
                     typ: Some(TypeAnnotation::Generic("T".to_string())),
+                    is_variadic: false,
                 },
                 Parameter {
                     name: "second".to_string(),
                     typ: Some(TypeAnnotation::Generic("U".to_string())),
+                    is_variadic: false,
                 },
             ],
             return_type: Some(TypeAnnotation::Named("Number".to_string())),
@@ -1502,6 +1505,7 @@ mod tests {
             params: vec![Parameter {
                 name: "x".to_string(),
                 typ: Some(TypeAnnotation::Generic("T".to_string())),
+                is_variadic: false,
             }],
             return_type: Some(TypeAnnotation::Parametrized {
                 name: "Box".to_string(),

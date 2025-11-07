@@ -183,6 +183,8 @@ pub enum Token {
     Pipe,
     /// `->` arrow (for return type annotations)
     Arrow,
+    /// `...` ellipsis (variadic function parameter)
+    Ellipsis,
 
     // === Delimiters ===
     /// `(` left parenthesis
@@ -356,6 +358,7 @@ impl Token {
             Token::Not => "not",
             Token::Pipe => "|",
             Token::Arrow => "->",
+            Token::Ellipsis => "...",
             Token::LeftParen => "(",
             Token::RightParen => ")",
             Token::LeftBracket => "[",

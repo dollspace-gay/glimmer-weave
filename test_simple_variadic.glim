@@ -1,0 +1,5 @@
+chant test_simple(...args) then
+    yield args
+end
+
+test_simple(1, 2, 3)

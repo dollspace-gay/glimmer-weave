@@ -362,6 +362,9 @@ impl Parser {
         let mut params = Vec::new();
         if !matches!(self.current(), Token::RightParen) {
             loop {
+                // Check for variadic parameter: ...name
+                let is_variadic = self.match_token(Token::Ellipsis);
+
                 let param_name = match self.current() {
                     Token::Ident(p) => p.clone(),
                     _ => {
@@ -383,7 +386,19 @@ impl Parser {
                 params.push(Parameter {
                     name: param_name,
                     typ: param_type,
+                    is_variadic,
                 });
+
+                // If this is a variadic parameter, it must be the last one
+                if is_variadic {
+                    if self.match_token(Token::Comma) {
+                        return Err(ParseError {
+                            message: "Variadic parameter must be the last parameter".to_string(),
+                            position: self.position,
+                        });
+                    }
+                    break;
+                }
 
                 if !self.match_token(Token::Comma) {
                     break;
@@ -597,6 +612,7 @@ impl Parser {
                     variant_fields.push(Parameter {
                         name: field_name,
                         typ: Some(field_type),
+                        is_variadic: false,
                     });
 
                     // Handle comma separator
@@ -717,6 +733,7 @@ impl Parser {
                     params.push(Parameter {
                         name: "self".to_string(),
                         typ: None, // self type is inferred
+                        is_variadic: false,
                     });
                     self.advance();
                 }
@@ -755,7 +772,11 @@ impl Parser {
                     None
                 };
 
-                params.push(Parameter { name: param_name, typ });
+                params.push(Parameter {
+                    name: param_name,
+                    typ,
+                    is_variadic: false,
+                });
             }
 
             self.expect(Token::RightParen)?;

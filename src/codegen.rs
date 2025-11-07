@@ -1468,8 +1468,8 @@ mod tests {
             name: "sum_to".to_string(),
             type_params: vec![],
             params: vec![
-                Parameter { name: "n".to_string(), typ: None },
-                Parameter { name: "acc".to_string(), typ: None },
+                Parameter { name: "n".to_string(), typ: None, is_variadic: false },
+                Parameter { name: "acc".to_string(), typ: None, is_variadic: false },
             ],
             return_type: None,
             body: vec![IfStmt {

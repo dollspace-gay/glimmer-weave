@@ -32,7 +32,7 @@ pub enum Value {
     Map(BTreeMap<String, Value>),
     /// Function (stored as AST for now - could be bytecode later)
     Chant {
-        params: Vec<String>,
+        params: Vec<Parameter>,
         body: Vec<AstNode>,
         closure: Environment,
     },
@@ -521,11 +521,27 @@ impl Evaluator {
 
         match func {
             Value::Chant { params, body, closure: _ } => {
-                if params.len() != args.len() {
-                    return Err(RuntimeError::ArityMismatch {
-                        expected: params.len(),
-                        got: args.len(),
-                    });
+                // Check if function has variadic parameters
+                let has_variadic = params.last().map_or(false, |p| p.is_variadic);
+                let required_params = if has_variadic { params.len() - 1 } else { params.len() };
+
+                // Arity check
+                if has_variadic {
+                    // Variadic function: must have at least required_params arguments
+                    if args.len() < required_params {
+                        return Err(RuntimeError::ArityMismatch {
+                            expected: required_params,
+                            got: args.len(),
+                        });
+                    }
+                } else {
+                    // Regular function: must have exact number of arguments
+                    if params.len() != args.len() {
+                        return Err(RuntimeError::ArityMismatch {
+                            expected: params.len(),
+                            got: args.len(),
+                        });
+                    }
                 }
 
                 // Get function name if callee is an Ident (for TCO detection)
@@ -541,8 +557,21 @@ impl Evaluator {
                     self.environment.push_scope();
 
                     // Bind parameters
-                    for (param, arg) in params.iter().zip(current_args.iter()) {
-                        self.environment.define(param.clone(), arg.clone());
+                    if has_variadic {
+                        // Bind regular parameters
+                        for (i, param) in params.iter().take(required_params).enumerate() {
+                            self.environment.define(param.name.clone(), current_args[i].clone());
+                        }
+
+                        // Collect remaining arguments into a list for the variadic parameter
+                        let variadic_param = &params[required_params];
+                        let variadic_args: Vec<Value> = current_args[required_params..].to_vec();
+                        self.environment.define(variadic_param.name.clone(), Value::List(variadic_args));
+                    } else {
+                        // Regular parameter binding
+                        for (param, arg) in params.iter().zip(current_args.iter()) {
+                            self.environment.define(param.name.clone(), arg.clone());
+                        }
                     }
 
                     // Store function name for tail call detection
@@ -811,15 +840,12 @@ impl Evaluator {
 
             // chant greet(name) then ... end
             AstNode::ChantDef { name, params, return_type: _, body, .. } => {
-                // Type annotations are checked by semantic analyzer, extract param names only
-                let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-
                 // Clone environment and add function to it for recursion support
                 let mut closure_env = self.environment.clone();
 
                 // Create the function value
                 let chant = Value::Chant {
-                    params: param_names.clone(),
+                    params: params.clone(),
                     body: body.clone(),
                     closure: closure_env.clone(),
                 };
@@ -829,7 +855,7 @@ impl Evaluator {
 
                 // Update the closure to include the function itself
                 let chant = Value::Chant {
-                    params: param_names,
+                    params: params.clone(),
                     body: body.clone(),
                     closure: closure_env,
                 };

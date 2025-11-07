@@ -44,6 +44,10 @@ pub enum TypeAnnotation {
 pub struct Parameter {
     pub name: String,
     pub typ: Option<TypeAnnotation>,
+    /// If true, this parameter collects remaining arguments into a list
+    /// Syntax: `...rest` or `...args`
+    /// Must be the last parameter if present
+    pub is_variadic: bool,
 }
 
 /// Struct field definition
@@ -85,12 +89,17 @@ pub struct TraitMethod {
 impl Parameter {
     /// Create a parameter without type annotation (for backward compatibility)
     pub fn untyped(name: String) -> Self {
-        Parameter { name, typ: None }
+        Parameter { name, typ: None, is_variadic: false }
     }
 
     /// Create a parameter with type annotation
     pub fn typed(name: String, typ: TypeAnnotation) -> Self {
-        Parameter { name, typ: Some(typ) }
+        Parameter { name, typ: Some(typ), is_variadic: false }
+    }
+
+    /// Create a variadic parameter
+    pub fn variadic(name: String, typ: Option<TypeAnnotation>) -> Self {
+        Parameter { name, typ, is_variadic: true }
     }
 }
 

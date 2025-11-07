@@ -22,7 +22,8 @@
       "Bash(timeout 30 cargo test:*)",
       "Bash(timeout 20 cargo test:*)",
       "Bash(bd close:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

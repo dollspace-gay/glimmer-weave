@@ -134,6 +134,53 @@ cargo build
 cargo test
 ```
 
+### Running the REPL
+
+Glimmer-Weave includes an interactive REPL (Read-Eval-Print Loop) for rapid prototyping and testing:
+
+```bash
+# Run the REPL
+cargo run --bin glimmer-repl --features repl
+
+# Or build and run separately
+cargo build --bin glimmer-repl --features repl --release
+./target/release/glimmer-repl
+```
+
+**REPL Features:**
+- **Line editing** - Arrow keys, home/end, command history
+- **Multi-line input** - Automatically detects incomplete expressions
+- **Command history** - Saved between sessions
+- **Special commands:**
+  - `:help` - Show help message
+  - `:quit` or `:exit` - Exit the REPL
+  - `:clear` - Clear the screen
+  - `:reset` - Reset environment (clear all variables)
+- **Keyboard shortcuts:**
+  - `Ctrl+C` - Cancel current input
+  - `Ctrl+D` - Exit REPL
+
+**Example REPL Session:**
+
+```
+glimmer[1]> bind x to 42
+42
+glimmer[2]> x + 10
+52
+glimmer[3]> chant factorial(n) then
+       ...>     should n <= 1 then
+       ...>         yield 1
+       ...>     otherwise
+       ...>         yield n * factorial(n - 1)
+       ...>     end
+       ...> end
+<function>
+glimmer[4]> factorial(5)
+120
+glimmer[5]> :quit
+Goodbye!
+```
+
 ---
 
 ## Language Guide

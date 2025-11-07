@@ -7,6 +7,10 @@ edition = "2021"
 [dependencies]
 # Use libm for no_std environments, std math for tests
 libm = { version = "0.2", default-features = false, optional = true }
+# REPL line editor with history and completion
+rustyline = { version = "13.0", optional = true }
+# Directory paths for history file
+dirs = { version = "5.0", optional = true }
 
 [dev-dependencies]
 
@@ -14,7 +18,14 @@ libm = { version = "0.2", default-features = false, optional = true }
 default = []
 # Use libm only when no_std is required
 use_libm = ["libm"]
+# REPL feature
+repl = ["rustyline", "dirs"]
 
 [lib]
 name = "glimmer_weave"
 path = "src/lib.rs"
+
+[[bin]]
+name = "glimmer-repl"
+path = "src/bin/repl.rs"
+required-features = ["repl"]

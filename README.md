@@ -17,13 +17,12 @@
   - [Pattern Matching](#5-pattern-matching)
   - [Error Handling](#6-error-handling)
   - [Custom Types (Structs)](#7-custom-types-structs)
-  - [Custom Enums](#8-custom-enums)
-  - [Traits (Interfaces)](#9-traits-interfaces)
-  - [Module System](#10-module-system)
-  - [Iterators](#11-iterators)
-  - [Pipeline Operator](#12-pipeline-operator)
-  - [Type Annotations](#13-type-annotations-optional)
-  - [Built-in Functions](#14-built-in-functions)
+  - [Traits (Interfaces)](#8-traits-interfaces)
+  - [Module System](#9-module-system)
+  - [Iterators](#10-iterators)
+  - [Pipeline Operator](#11-pipeline-operator)
+  - [Type Annotations](#12-type-annotations-optional)
+  - [Built-in Functions](#13-built-in-functions)
 - [Examples](#examples)
 - [Running Programs](#running-programs)
 - [Contributing](#contributing)
@@ -41,7 +40,7 @@
 🌊 **Functional Features** - First-class functions, closures, pipeline operator
 📦 **Module System** - Organize code with natural keywords (`grove`, `offer`, `summon`)
 🎭 **Traits** - Interfaces with natural language (`aspect`, `embody`, `invoke`)
-🔢 **Custom Enums** - Tagged unions with exhaustive pattern matching
+🔢 **Built-in Enums** - Present/Absent and Triumph/Mishap with pattern matching
 🔁 **Iterators** - Lazy iteration with map, filter, fold, and more
 🎯 **Advanced Control Flow** - Break/continue, error propagation operator (`?`)
 
@@ -345,14 +344,20 @@ bind my_func to add
 bind result to my_func(5, 3)  # 8
 
 # Closures capture their environment
-chant make_adder(x) then
-    yield chant(y) then
-        yield x + y
+chant make_counter() then
+    weave count as 0
+
+    chant increment() then
+        set count to count + 1
+        yield count
     end
+
+    yield increment
 end
 
-bind add_10 to make_adder(10)
-add_10(5)  # 15
+bind counter to make_counter()
+counter()  # 1
+counter()  # 2
 ```
 
 ---
@@ -388,25 +393,13 @@ match result with
         "Not found"
 end
 
-# Match with custom enums
-envisage Status with
-    | Pending
-    | Active(Number)
-    | Completed(Text)
-end
-
-bind status to Active(42)
-
-match status with
-    when Pending then "Waiting..."
-    when Active(id) then "Active: " + to_text(id)
-    when Completed(msg) then "Done: " + msg
-end
 ```
 
 **Built-in Enums:**
-- `Present(value)` / `Absent` - Maybe/Option type
-- `Triumph(value)` / `Mishap(error)` - Outcome/Result type
+- `Present(value)` / `Absent` - Maybe/Option type (for optional values)
+- `Triumph(value)` / `Mishap(error)` - Outcome/Result type (for error handling)
+
+**Note:** Custom enum definitions (`envisage` keyword) are planned but not yet implemented.
 
 ---
 
@@ -491,47 +484,7 @@ bind width to rect.bottom_right.x - rect.top_left.x
 
 ---
 
-### 8. Custom Enums
-
-Define your own tagged unions with pattern matching:
-
-```glimmer-weave
-# Define a custom enum
-envisage Color with
-    | Red
-    | Green
-    | Blue
-    | RGB(Number, Number, Number)
-end
-
-# Create enum values
-bind primary to Red
-bind custom to RGB(128, 64, 255)
-
-# Pattern match on enums
-match primary with
-    when Red then "Red color"
-    when Green then "Green color"
-    when Blue then "Blue color"
-    when RGB(r, g, b) then
-        "Custom: " + to_text(r) + "," + to_text(g) + "," + to_text(b)
-end
-
-# Enums in structs
-form Button with
-    label as Text
-    color as Color
-end
-
-bind btn to Button {
-    label: "Click me",
-    color: Blue
-}
-```
-
----
-
-### 9. Traits (Interfaces)
+### 8. Traits (Interfaces)
 
 Define interfaces that types can implement:
 
@@ -576,7 +529,7 @@ end
 
 ---
 
-### 10. Module System
+### 9. Module System
 
 Organize code into reusable modules:
 
@@ -631,101 +584,78 @@ bind r to square_root(16)
 
 ---
 
-### 11. Iterators
+### 10. Iterators
 
 Lazy iteration with transformation pipelines:
 
 ```glimmer-weave
+# Note: Iterators are lazy and require manual iteration using iter_next
+# Helper functions like iter_collect must be implemented in Glimmer-Weave code
+
+# Define helper functions
+chant double(x) then yield x * 2 end
+chant is_even(x) then yield x % 2 is 0 end
+
 # Create an iterator from a list
 bind numbers to [1, 2, 3, 4, 5]
 bind it to iter(numbers)
 
-# Transform with map
-bind doubled to it | iter_map(chant(x) then yield x * 2 end)
+# Transform with map (returns new iterator)
+bind doubled to iter_map(it, double)
 
-# Filter values
-bind evens to doubled | iter_filter(chant(x) then yield x % 2 is 0 end)
+# Filter values (returns new iterator)
+bind evens to iter_filter(doubled, is_even)
 
-# Collect back to list
-bind result to evens | iter_collect  # [4, 8]
+# Manually iterate to get next value
+bind pair to iter_next(evens)
+bind next_iter to list_first(pair)
+bind next_value to list_last(pair)  # Present(2) or Absent
 
-# Full pipeline
-bind result to iter([1, 2, 3, 4, 5])
-    | iter_map(chant(x) then yield x * 2 end)
-    | iter_filter(chant(x) then yield x greater than 5 end)
-    | iter_collect  # [6, 8, 10]
+match next_value with
+    when Present(value) then value  # 2
+    when Absent then 0
+end
 
-# Iterator operations
-iter_fold(iter([1, 2, 3, 4, 5]), 0, chant(acc, x) then
-    yield acc + x
-end)  # 15
-
-iter_take(iter([1, 2, 3, 4, 5]), 3)  # [1, 2, 3]
-iter_skip(iter([1, 2, 3, 4, 5]), 2)  # [3, 4, 5]
-
-# Chaining operations
-bind sum to iter(range(1, 11))
-    | iter_filter(chant(x) then yield x % 2 is 0 end)
-    | iter_map(chant(x) then yield x * x end)
-    | iter_fold(0, chant(acc, x) then yield acc + x end)
-# Sum of squares of even numbers: 2² + 4² + 6² + 8² + 10² = 220
-
-# Find first match
-iter_find(iter([1, 2, 3, 4, 5]), chant(x) then
-    yield x greater than 3
-end)  # Present(4)
-
-# Check conditions
-iter_any(iter([1, 2, 3]), chant(x) then yield x > 2 end)  # true
-iter_all(iter([1, 2, 3]), chant(x) then yield x > 0 end)  # true
+# Take first N elements (returns iterator)
+bind limited to iter_take(iter([1, 2, 3, 4, 5]), 3)
 ```
 
 **Iterator Functions:**
 - `iter(list)` - Create iterator from list
-- `iter_next(it)` - Get next value (Present or Absent)
-- `iter_map(it, fn)` - Transform each element
-- `iter_filter(it, predicate)` - Keep only matching elements
-- `iter_fold(it, init, fn)` - Reduce to single value
-- `iter_collect(it)` - Collect to list
-- `iter_take(it, n)` - Take first n elements
-- `iter_skip(it, n)` - Skip first n elements
-- `iter_find(it, predicate)` - Find first match
-- `iter_any(it, predicate)` - Check if any match
-- `iter_all(it, predicate)` - Check if all match
-- `iter_zip(it1, it2)` - Zip two iterators
+- `iter_next(it)` - Get next value as `[new_iter, Present(value)]` or `[new_iter, Absent]`
+- `iter_map(it, fn)` - Transform each element (returns new iterator)
+- `iter_filter(it, predicate)` - Keep only matching elements (returns new iterator)
+- `iter_take(it, n)` - Take first n elements (returns new iterator)
+
+**Note:** Advanced iterator operations like `iter_collect`, `iter_fold`, `iter_find`, etc. must be implemented in Glimmer-Weave code using recursive helpers with `iter_next`.
 
 ---
 
-### 12. Pipeline Operator
+### 11. Pipeline Operator
 
 The pipeline operator (`|`) enables functional composition by threading values through functions:
 
 ```glimmer-weave
+# Define helper functions
+chant double(x) then yield x * 2 end
+chant add_one(x) then yield x + 1 end
+chant square(x) then yield x * x end
+
 # Basic pipeline
 5 | double | add_one | square  # ((5 * 2) + 1)² = 121
 
-# Pipeline with additional arguments
-10 | add(5) | multiply(2)  # (10 + 5) * 2 = 30
+# With iterators (requires helper functions)
+chant is_greater_than_five(x) then yield x greater than 5 end
 
-# Data transformation pipeline
-bind data to [-2, -1, 0, 1, 2, 3, 4, 5]
-
-data
-  | filter_positive    # [1, 2, 3, 4, 5]
-  | double_all         # [2, 4, 6, 8, 10]
-  | sum                # 30
-
-# With iterators
-[1, 2, 3, 4, 5]
-  | iter
-  | iter_map(chant(x) then yield x * 2 end)
-  | iter_filter(chant(x) then yield x > 5 end)
-  | iter_collect  # [6, 8, 10]
+bind result to iter([1, 2, 3, 4, 5])
+    | iter_map(double)
+    | iter_filter(is_greater_than_five)
+    | iter_collect  # [6, 8, 10]
 ```
 
 ---
 
-### 13. Type Annotations (Optional)
+### 12. Type Annotations (Optional)
 
 ```glimmer-weave
 # Variables with type annotations
@@ -753,7 +683,7 @@ end
 
 ---
 
-### 14. Built-in Functions
+### 13. Built-in Functions
 
 Glimmer-Weave provides extensive built-in functions for common operations:
 
@@ -776,21 +706,28 @@ list_sum([1, 2, 3, 4, 5])        # 15.0
 
 ```glimmer-weave
 to_text(42)                      # "42"
-text_length("hello")             # 5
-text_concat("Hello", " World")   # "Hello World"
-text_slice("hello", 1, 4)        # "ell"
-text_uppercase("hello")          # "HELLO"
-text_lowercase("HELLO")          # "hello"
-text_contains("hello", "ell")    # true
+length("hello")                  # 5
+concat("Hello", " World")        # "Hello World"
+slice("hello", 1, 4)             # "ell"
+upper("hello")                   # "HELLO"
+lower("HELLO")                   # "hello"
+contains("hello", "ell")         # true
+trim("  hello  ")                # "hello"
+split("a,b,c", ",")              # ["a", "b", "c"]
+join(["a", "b"], ",")            # "a,b"
 ```
 
 #### Math Operations
 
 ```glimmer-weave
-math_floor(3.7)                  # 3.0
-math_ceil(3.2)                   # 4.0
-math_round(3.5)                  # 4.0
-math_abs(-5.3)                   # 5.3
+floor(3.7)                       # 3.0
+ceil(3.2)                        # 4.0
+round(3.5)                       # 4.0
+abs(-5.3)                        # 5.3
+sqrt(16)                         # 4.0
+pow(2, 3)                        # 8.0
+min(5, 3)                        # 3.0
+max(5, 3)                        # 5.0
 ```
 
 #### Iteration
@@ -833,64 +770,53 @@ for each i in range(1, 101) then
 end
 ```
 
-### Example 2: List Processing with Iterators
+### Example 2: List Processing with Built-in Functions
 
 ```glimmer-weave
-# Filter and transform using iterators
+# Filter and transform using list built-in functions
 bind numbers to [-2, -1, 0, 1, 2, 3, 4, 5]
 
-bind result to iter(numbers)
-    | iter_filter(chant(x) then yield x greater than 0 end)
-    | iter_map(chant(x) then yield x * 2 end)
-    | iter_collect  # [2, 4, 6, 8, 10]
-```
-
-### Example 3: Working with Structs and Enums
-
-```glimmer-weave
-# Define enum for account status
-envisage AccountStatus with
-    | Active
-    | Frozen(Text)
-    | Closed
+# Using list operations
+weave result as []
+for each n in numbers then
+    should n greater than 0 then
+        set result to list_push(result, n * 2)
+    end
 end
 
+result  # [2, 4, 6, 8, 10]
+```
+
+### Example 3: Working with Structs and Built-in Enums
+
+```glimmer-weave
 # Define struct
 form Account with
     owner as Text
     balance as Number
-    status as AccountStatus
 end
 
 chant withdraw(account, amount) then
-    match account.status with
-        when Active then
-            should amount greater than account.balance then
-                yield Mishap("Insufficient funds")
-            otherwise
-                yield Triumph(Account {
-                    owner: account.owner,
-                    balance: account.balance - amount,
-                    status: Active
-                })
-            end
-        when Frozen(reason) then
-            yield Mishap("Account frozen: " + reason)
-        when Closed then
-            yield Mishap("Account is closed")
+    should amount greater than account.balance then
+        yield Mishap("Insufficient funds")
+    otherwise
+        yield Triumph({
+            owner: account.owner,
+            balance: account.balance - amount
+        })
     end
 end
 
-bind my_account to Account {
+# Create struct using object literal syntax (simpler)
+bind my_account to {
     owner: "Alice",
-    balance: 100,
-    status: Active
+    balance: 100
 }
 
 bind withdrawal to withdraw(my_account, 30)
 match withdrawal with
     when Triumph(new_account) then
-        "New balance: " + to_text(new_account.balance)
+        "New balance: " + to_text(new_account["balance"])
     when Mishap(error) then
         "Error: " + error
 end
@@ -1125,7 +1051,7 @@ For detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
 - ✅ Closures and first-class functions
 - ✅ Pattern matching (exhaustive)
 - ✅ Custom types (structs)
-- ✅ Custom enums (tagged unions)
+- ✅ Built-in enums (Present/Absent, Triumph/Mishap)
 - ✅ Traits (interfaces)
 - ✅ **Module system** (grove, offer, summon, gather) - NEW!
 - ✅ **Iterators** (map, filter, fold, etc.) - NEW!
@@ -1139,6 +1065,8 @@ For detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
 
 ### Planned Features 🚧
 
+- [ ] Anonymous functions/lambdas
+- [ ] Custom enum definitions (envisage keyword)
 - [ ] Generics/parametric polymorphism
 - [ ] Generic trait implementations
 - [ ] Async/await
@@ -1168,7 +1096,6 @@ For detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
 | `match` | Pattern matching | `match x with when 1 then...end` |
 | `when` | Match arm | `when 42 then "found"` |
 | `form` | Define struct | `form Point with x as Number end` |
-| `envisage` | Define enum | `envisage Color with \| Red \| Green end` |
 | `aspect` | Define trait | `aspect Drawable with...end` |
 | `embody` | Implement trait | `embody Drawable for Circle then...end` |
 | `invoke` | Call trait method | `invoke Trait.method on value` |

@@ -128,6 +128,11 @@ impl Parser {
             Token::Match => self.parse_match(),
             Token::Attempt => self.parse_attempt(),
             Token::Request => self.parse_request(),
+            // === Module System ===
+            Token::Grove => self.parse_module_decl(),
+            Token::Summon => self.parse_import(),
+            Token::Gather => self.parse_import(), // gather is also handled by parse_import
+            Token::Offer => self.parse_export(),
             _ => {
                 // Try expression statement
                 let expr = self.parse_expression()?;
@@ -1145,6 +1150,207 @@ impl Parser {
         })
     }
 
+    // === Module System Parsing (Phase 1) ===
+
+    /// Parse: grove Math with body end
+    fn parse_module_decl(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Grove)?;
+
+        let name = match self.current() {
+            Token::Ident(n) => n.clone(),
+            _ => {
+                return Err(ParseError {
+                    message: "Expected module name after 'grove'".to_string(),
+                    position: self.position,
+                })
+            }
+        };
+        self.advance();
+
+        self.expect(Token::With)?;
+        self.skip_newlines();
+
+        let mut body = Vec::new();
+        let mut exports = Vec::new();
+
+        // Parse module body until 'end'
+        while !matches!(self.current(), Token::End | Token::Eof) {
+            let stmt = self.parse_statement()?;
+
+            // If it's an Export statement, extract the items
+            if let AstNode::Export { items } = &stmt {
+                exports.extend(items.clone());
+            }
+
+            body.push(stmt);
+            self.skip_newlines();
+        }
+
+        self.expect(Token::End)?;
+
+        Ok(AstNode::ModuleDecl {
+            name,
+            body,
+            exports,
+        })
+    }
+
+    /// Parse: summon Math from "std/math.gw"
+    ///    OR: summon Math from "std/math.gw" as M
+    ///    OR: gather sqrt, pow from Math
+    fn parse_import(&mut self) -> ParseResult<AstNode> {
+        // Determine if this is 'summon' (import all) or 'gather' (import specific)
+        let is_gather = matches!(self.current(), Token::Gather);
+        self.advance(); // consume 'summon' or 'gather'
+
+        // Parse module name or items depending on keyword
+        let (module_name_hint, items) = if is_gather {
+            // gather: parse items list first
+            let mut item_list = Vec::new();
+
+            loop {
+                match self.current() {
+                    Token::Ident(name) => {
+                        item_list.push(name.clone());
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected identifier in gather list".to_string(),
+                            position: self.position,
+                        })
+                    }
+                }
+            }
+
+            (None, Some(item_list))
+        } else {
+            // summon: parse module name (optional, can be inferred from path)
+            // Syntax: summon Math from "path" OR summon from "path"
+            if !matches!(self.current(), Token::From) {
+                let name = match self.current() {
+                    Token::Ident(n) => Some(n.clone()),
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected module name or 'from' after 'summon'".to_string(),
+                            position: self.position,
+                        })
+                    }
+                };
+                self.advance();
+                (name, None)
+            } else {
+                (None, None)
+            }
+        };
+
+        // Parse 'from' clause
+        self.expect(Token::From)?;
+
+        // Parse module path (can be identifier or string)
+        let (module_name, path) = match self.current() {
+            Token::Text(p) => {
+                // Path is a string: from "std/math.gw"
+                // Extract module name from path (e.g., "std/math.gw" -> "math")
+                let extracted_name = p.trim_end_matches(".gw")
+                    .split('/')
+                    .last()
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Use module name hint if provided, otherwise extract from path
+                let final_name = module_name_hint.unwrap_or(extracted_name);
+                let path = p.clone();
+                self.advance();
+                (final_name, path)
+            }
+            Token::Ident(name) => {
+                // Module name: from Math (path will be inferred)
+                let module_name = module_name_hint.unwrap_or_else(|| name.clone());
+                let path = format!("{}.gw", name);
+                self.advance();
+                (module_name, path)
+            }
+            _ => {
+                return Err(ParseError {
+                    message: "Expected module path (string) or name (identifier) after 'from'".to_string(),
+                    position: self.position,
+                })
+            }
+        };
+
+        // Parse optional 'as' alias
+        let alias = if matches!(self.current(), Token::As) {
+            self.advance(); // consume 'as'
+
+            match self.current() {
+                Token::Ident(alias_name) => {
+                    let a = Some(alias_name.clone());
+                    self.advance();
+                    a
+                }
+                _ => {
+                    return Err(ParseError {
+                        message: "Expected identifier after 'as'".to_string(),
+                        position: self.position,
+                    })
+                }
+            }
+        } else {
+            None
+        };
+
+        Ok(AstNode::Import {
+            module_name,
+            path,
+            items,
+            alias,
+        })
+    }
+
+    /// Parse: offer sqrt, pow
+    fn parse_export(&mut self) -> ParseResult<AstNode> {
+        self.expect(Token::Offer)?;
+
+        let mut items = Vec::new();
+
+        loop {
+            match self.current() {
+                Token::Ident(name) => {
+                    items.push(name.clone());
+                    self.advance();
+
+                    if matches!(self.current(), Token::Comma) {
+                        self.advance(); // consume comma
+                    } else {
+                        break;
+                    }
+                }
+                _ => {
+                    return Err(ParseError {
+                        message: "Expected identifier in export list".to_string(),
+                        position: self.position,
+                    })
+                }
+            }
+        }
+
+        if items.is_empty() {
+            return Err(ParseError {
+                message: "Expected at least one item to export after 'offer'".to_string(),
+                position: self.position,
+            });
+        }
+
+        Ok(AstNode::Export { items })
+    }
+
     /// Parse an expression
     fn parse_expression(&mut self) -> ParseResult<AstNode> {
         self.parse_pipeline()
@@ -1730,6 +1936,196 @@ impl Parser {
                 message: "Expected type name".to_string(),
                 position: self.position,
             }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_single_statement(source: &str) -> Result<AstNode, ParseError> {
+        let mut lexer = crate::lexer::Lexer::new(source);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        parser.parse_statement()
+    }
+
+    // === Module Declaration Tests ===
+
+    #[test]
+    fn test_parse_module_decl_simple() {
+        let source = r#"
+grove Math with
+    chant add(a, b) then
+        yield a + b
+    end
+    offer add
+end
+        "#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse module declaration: {:?}", result);
+
+        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+            assert_eq!(name, "Math");
+            assert_eq!(body.len(), 2); // chant def + export
+            assert_eq!(exports.len(), 1);
+            assert_eq!(exports[0], "add");
+        } else {
+            panic!("Expected ModuleDecl, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_module_decl_empty() {
+        let source = r#"
+grove Empty with
+end
+        "#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse empty module: {:?}", result);
+
+        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+            assert_eq!(name, "Empty");
+            assert_eq!(body.len(), 0);
+            assert_eq!(exports.len(), 0);
+        } else {
+            panic!("Expected ModuleDecl, got: {:?}", result);
+        }
+    }
+
+    // === Import Tests ===
+
+    #[test]
+    fn test_parse_summon_with_path() {
+        let source = r#"summon Math from "std/math.gw""#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse summon statement: {:?}", result);
+
+        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+            assert_eq!(module_name, "Math"); // Module name from "summon Math"
+            assert_eq!(path, "std/math.gw");
+            assert!(items.is_none());
+            assert!(alias.is_none());
+        } else {
+            panic!("Expected Import, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_summon_with_alias() {
+        let source = r#"summon Math from "std/math.gw" as M"#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse summon with alias: {:?}", result);
+
+        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+            assert_eq!(module_name, "Math"); // Module name from "summon Math"
+            assert_eq!(path, "std/math.gw");
+            assert!(items.is_none());
+            assert_eq!(alias, Some("M".to_string()));
+        } else {
+            panic!("Expected Import, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_gather_specific_items() {
+        let source = r#"gather sqrt, pow from Math"#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse gather statement: {:?}", result);
+
+        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+            assert_eq!(module_name, "Math");
+            assert_eq!(path, "Math.gw");
+            assert_eq!(items, Some(vec!["sqrt".to_string(), "pow".to_string()]));
+            assert!(alias.is_none());
+        } else {
+            panic!("Expected Import, got: {:?}", result);
+        }
+    }
+
+    // === Export Tests ===
+
+    #[test]
+    fn test_parse_export_single_item() {
+        let source = r#"offer sqrt"#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse export: {:?}", result);
+
+        if let Ok(AstNode::Export { items }) = result {
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0], "sqrt");
+        } else {
+            panic!("Expected Export, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_export_multiple_items() {
+        let source = r#"offer sqrt, pow, abs"#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse export: {:?}", result);
+
+        if let Ok(AstNode::Export { items }) = result {
+            assert_eq!(items.len(), 3);
+            assert_eq!(items, vec!["sqrt".to_string(), "pow".to_string(), "abs".to_string()]);
+        } else {
+            panic!("Expected Export, got: {:?}", result);
+        }
+    }
+
+    // === Integration Test ===
+
+    #[test]
+    fn test_parse_complete_module() {
+        let source = r#"
+grove Math with
+    chant sqrt(x) then
+        yield x * 0.5
+    end
+
+    chant pow(base, exp) then
+        yield base * exp
+    end
+
+    chant _helper() then
+        yield 42
+    end
+
+    offer sqrt, pow
+end
+        "#;
+
+        let result = parse_single_statement(source);
+        assert!(result.is_ok(), "Failed to parse complete module: {:?}", result);
+
+        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+            assert_eq!(name, "Math");
+            assert_eq!(body.len(), 4); // 3 functions + 1 export statement
+            assert_eq!(exports, vec!["sqrt".to_string(), "pow".to_string()]);
+
+            // Verify first function is sqrt
+            if let AstNode::ChantDef { name, .. } = &body[0] {
+                assert_eq!(name, "sqrt");
+            } else {
+                panic!("Expected ChantDef for sqrt");
+            }
+
+            // Verify export statement is last
+            if let AstNode::Export { items } = &body[3] {
+                assert_eq!(items, &vec!["sqrt".to_string(), "pow".to_string()]);
+            } else {
+                panic!("Expected Export statement");
+            }
+        } else {
+            panic!("Expected ModuleDecl, got: {:?}", result);
         }
     }
 }

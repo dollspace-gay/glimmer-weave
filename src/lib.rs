@@ -71,6 +71,7 @@ pub mod vm;
 pub mod monomorphize;
 pub mod type_inference;
 pub mod native_runtime;
+pub mod module_resolver;
 
 // Native allocator FFI (only available when compiled with GNU assembler)
 #[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
@@ -112,3 +113,4 @@ pub use eval::{Value, RuntimeError, Environment, Evaluator};
 pub use codegen::{CodeGen, Instruction, Register, compile_to_asm};
 pub use elf::{ElfBuilder, create_elf_object};
 pub use semantic::{SemanticAnalyzer, SemanticError, Type, analyze};
+pub use module_resolver::{ModuleResolver, ModuleInfo, ResolverError, ResolverResult};

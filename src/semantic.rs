@@ -165,6 +165,29 @@ pub enum SemanticError {
     NonExhaustiveMatch {
         message: String,
     },
+    /// Module not found during import
+    ModuleNotFound {
+        name: String,
+        path: String,
+    },
+    /// Symbol not exported by module
+    SymbolNotExported {
+        symbol: String,
+        module: String,
+    },
+    /// Name conflict with imported symbol
+    ImportConflict {
+        name: String,
+        source: String,
+    },
+    /// Exported symbol does not exist
+    ExportNotFound {
+        name: String,
+    },
+    /// Circular module dependency
+    CircularModuleDependency {
+        cycle: Vec<String>,
+    },
     /// Custom error message (for trait system and other features)
     Custom(String),
 }
@@ -298,6 +321,18 @@ struct TraitImplKey {
     target_type: String,
 }
 
+/// Information about a module's exports
+#[derive(Debug, Clone)]
+struct ModuleExports {
+    /// Module name (used for debugging and error messages)
+    #[allow(dead_code)]
+    name: String,
+    /// Set of exported symbol names
+    exports: Vec<String>,
+    /// Symbol table for this module (contains all symbols, not just exports)
+    symbols: BTreeMap<String, Symbol>,
+}
+
 /// Trait implementation information
 ///
 /// FUTURE: Used for verifying trait implementations match trait definitions.
@@ -327,6 +362,13 @@ pub struct SemanticAnalyzer {
     trait_definitions: BTreeMap<String, TraitDefinition>,
     /// Trait implementations registry (aspect_name, target_type) -> implementation
     trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
+    /// Module exports registry (module_name -> module exports)
+    module_exports: BTreeMap<String, ModuleExports>,
+    /// Imported modules in current scope (module_name -> imported symbols)
+    /// None means all symbols are imported (summon), Some(vec) means specific symbols (gather)
+    imported_modules: BTreeMap<String, Option<Vec<String>>>,
+    /// Current module being analyzed (if inside a module declaration)
+    current_module: Option<String>,
 }
 
 impl Default for SemanticAnalyzer {
@@ -346,6 +388,9 @@ impl SemanticAnalyzer {
             type_inference: None,  // Disabled by default
             trait_definitions: BTreeMap::new(),
             trait_implementations: BTreeMap::new(),
+            module_exports: BTreeMap::new(),
+            imported_modules: BTreeMap::new(),
+            current_module: None,
         };
 
         // Register builtin functions
@@ -1298,6 +1343,138 @@ impl SemanticAnalyzer {
                 // TODO: Implement query analysis
                 Type::Any
             }
+
+            // === Module System (Phase 3: Semantic Analysis) ===
+            AstNode::ModuleDecl { name, body, exports } => {
+                // Set current module context
+                let prev_module = self.current_module.clone();
+                self.current_module = Some(name.clone());
+
+                // Create new scope for module
+                self.symbol_table.push_scope();
+
+                // Analyze module body
+                for stmt in body {
+                    self.analyze_node(stmt);
+                }
+
+                // Collect all symbols defined in this module
+                let module_symbols = self.symbol_table.scopes[self.symbol_table.current_scope]
+                    .symbols.clone();
+
+                // Validate that all exported symbols actually exist
+                for export_name in exports {
+                    if !module_symbols.contains_key(export_name) {
+                        self.errors.push(SemanticError::ExportNotFound {
+                            name: export_name.clone(),
+                        });
+                    }
+                }
+
+                // Store module exports
+                self.module_exports.insert(name.clone(), ModuleExports {
+                    name: name.clone(),
+                    exports: exports.clone(),
+                    symbols: module_symbols,
+                });
+
+                // Exit module scope
+                self.symbol_table.pop_scope();
+
+                // Restore previous module context
+                self.current_module = prev_module;
+
+                Type::Nothing
+            }
+
+            AstNode::Import { module_name, path: _, items, alias } => {
+                // For Phase 3, we perform basic validation
+                // In Phase 4 (Interpreter Support), ModuleResolver will load actual modules
+
+                // Determine the effective module name (use alias if provided)
+                let effective_name = alias.as_ref().unwrap_or(module_name);
+
+                // Check for name conflicts with existing symbols
+                if self.symbol_table.lookup(effective_name).is_some() {
+                    self.errors.push(SemanticError::ImportConflict {
+                        name: effective_name.clone(),
+                        source: format!("conflicts with existing symbol"),
+                    });
+                }
+
+                // Register imported module
+                // items: None = import all (summon), Some(vec) = specific items (gather)
+                if let Some(item_list) = items {
+                    // Selective import (gather)
+                    // Check each imported item for conflicts
+                    for item in item_list {
+                        if self.symbol_table.lookup(item).is_some() {
+                            self.errors.push(SemanticError::ImportConflict {
+                                name: item.clone(),
+                                source: format!("imported from module '{}'", module_name),
+                            });
+                        }
+                    }
+                    self.imported_modules.insert(effective_name.clone(), Some(item_list.clone()));
+                } else {
+                    // Import all (summon)
+                    self.imported_modules.insert(effective_name.clone(), None);
+                }
+
+                // Note: Actual module loading and export validation will happen in Phase 4
+                // when integrated with ModuleResolver
+                // For now, we just validate naming conflicts
+
+                Type::Nothing
+            }
+
+            AstNode::Export { items } => {
+                // Standalone export statement (not inside module declaration)
+                // Validate that exported symbols exist in current scope
+                for item_name in items {
+                    if self.symbol_table.lookup(item_name).is_none() {
+                        self.errors.push(SemanticError::ExportNotFound {
+                            name: item_name.clone(),
+                        });
+                    }
+                }
+
+                // Note: Module declarations handle their own exports inline
+                // This is for standalone export statements (if ever supported)
+                Type::Nothing
+            }
+
+            AstNode::ModuleAccess { module, member } => {
+                // Resolve module.member access
+
+                // Check if module is imported
+                if !self.imported_modules.contains_key(module) {
+                    self.errors.push(SemanticError::UndefinedVariable(module.clone()));
+                    return Type::Unknown;
+                }
+
+                // Check if we have module exports registered
+                if let Some(module_exports) = self.module_exports.get(module) {
+                    // Check if member is exported
+                    if !module_exports.exports.contains(member) {
+                        self.errors.push(SemanticError::SymbolNotExported {
+                            symbol: member.clone(),
+                            module: module.clone(),
+                        });
+                        return Type::Unknown;
+                    }
+
+                    // Lookup member's type in module's symbol table
+                    if let Some(symbol) = module_exports.symbols.get(member) {
+                        return symbol.typ.clone();
+                    }
+                }
+
+                // Module exists but we don't have its exports yet
+                // (This happens when ModuleResolver hasn't loaded the module yet)
+                // For Phase 3, we allow this and defer to Phase 4
+                Type::Any
+            }
         }
     }
 
@@ -1568,5 +1745,339 @@ mod tests {
             }
             _ => panic!("Expected Generic type, got: {:?}", return_type),
         }
+    }
+
+    // ============================================================================
+    // Module System Tests (Phase 3)
+    // ============================================================================
+
+    #[test]
+    fn test_module_declaration_with_valid_exports() {
+        // grove Math with
+        //     chant sqrt(x) then yield x end
+        //     chant pow(a, b) then yield a end
+        //     offer sqrt, pow
+        // end
+        let ast = vec![AstNode::ModuleDecl {
+            name: "Math".to_string(),
+            body: vec![
+                AstNode::ChantDef {
+                    name: "sqrt".to_string(),
+                    type_params: vec![],
+                    params: vec![Parameter {
+                        name: "x".to_string(),
+                        typ: None,
+                        is_variadic: false,
+                    }],
+                    return_type: None,
+                    body: vec![AstNode::YieldStmt {
+                        value: Box::new(AstNode::Ident("x".to_string())),
+                    }],
+                },
+                AstNode::ChantDef {
+                    name: "pow".to_string(),
+                    type_params: vec![],
+                    params: vec![
+                        Parameter {
+                            name: "a".to_string(),
+                            typ: None,
+                            is_variadic: false,
+                        },
+                        Parameter {
+                            name: "b".to_string(),
+                            typ: None,
+                            is_variadic: false,
+                        },
+                    ],
+                    return_type: None,
+                    body: vec![AstNode::YieldStmt {
+                        value: Box::new(AstNode::Ident("a".to_string())),
+                    }],
+                },
+            ],
+            exports: vec!["sqrt".to_string(), "pow".to_string()],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors - all exports are valid
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
+
+        // Check that module exports were registered
+        assert!(analyzer.module_exports.contains_key("Math"));
+        let math_exports = &analyzer.module_exports["Math"];
+        assert_eq!(math_exports.exports.len(), 2);
+        assert!(math_exports.exports.contains(&"sqrt".to_string()));
+        assert!(math_exports.exports.contains(&"pow".to_string()));
+    }
+
+    #[test]
+    fn test_module_declaration_with_invalid_export() {
+        // grove Math with
+        //     chant sqrt(x) then yield x end
+        //     offer sqrt, nonexistent
+        // end
+        let ast = vec![AstNode::ModuleDecl {
+            name: "Math".to_string(),
+            body: vec![AstNode::ChantDef {
+                name: "sqrt".to_string(),
+                type_params: vec![],
+                params: vec![Parameter {
+                    name: "x".to_string(),
+                    typ: None,
+                    is_variadic: false,
+                }],
+                return_type: None,
+                body: vec![AstNode::YieldStmt {
+                    value: Box::new(AstNode::Ident("x".to_string())),
+                }],
+            }],
+            exports: vec!["sqrt".to_string(), "nonexistent".to_string()],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should have an ExportNotFound error
+        assert!(result.is_err(), "Expected error for nonexistent export");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(e, SemanticError::ExportNotFound { name } if name == "nonexistent")),
+            "Expected ExportNotFound error, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_import_without_conflict() {
+        // summon Math from "std/math.gw"
+        let ast = vec![AstNode::Import {
+            module_name: "Math".to_string(),
+            path: "std/math.gw".to_string(),
+            items: None,  // Import all
+            alias: None,
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
+
+        // Check that module was registered as imported
+        assert!(analyzer.imported_modules.contains_key("Math"));
+        assert_eq!(analyzer.imported_modules["Math"], None); // None = import all
+    }
+
+    #[test]
+    fn test_import_with_name_conflict() {
+        // bind Math to 42
+        // summon Math from "std/math.gw"  # Conflict!
+        let ast = vec![
+            AstNode::BindStmt {
+                name: "Math".to_string(),
+                typ: None,
+                value: Box::new(AstNode::Number(42.0)),
+            },
+            AstNode::Import {
+                module_name: "Math".to_string(),
+                path: "std/math.gw".to_string(),
+                items: None,
+                alias: None,
+            },
+        ];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should have an ImportConflict error
+        assert!(result.is_err(), "Expected error for import conflict");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(e, SemanticError::ImportConflict { name, .. } if name == "Math")),
+            "Expected ImportConflict error, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_selective_import_with_conflict() {
+        // bind sqrt to 42
+        // gather sqrt, pow from Math  # Conflict on sqrt!
+        let ast = vec![
+            AstNode::BindStmt {
+                name: "sqrt".to_string(),
+                typ: None,
+                value: Box::new(AstNode::Number(42.0)),
+            },
+            AstNode::Import {
+                module_name: "Math".to_string(),
+                path: "std/math.gw".to_string(),
+                items: Some(vec!["sqrt".to_string(), "pow".to_string()]),
+                alias: None,
+            },
+        ];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should have an ImportConflict error
+        assert!(result.is_err(), "Expected error for import conflict");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(e, SemanticError::ImportConflict { name, .. } if name == "sqrt")),
+            "Expected ImportConflict error, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_module_qualified_access_with_non_imported_module() {
+        // Math.sqrt(16)  # Math not imported!
+        let ast = vec![AstNode::Call {
+            callee: Box::new(AstNode::ModuleAccess {
+                module: "Math".to_string(),
+                member: "sqrt".to_string(),
+            }),
+            args: vec![AstNode::Number(16.0)],
+            type_args: vec![],
+        }];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should have an UndefinedVariable error for Math
+        assert!(result.is_err(), "Expected error for non-imported module");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(e, SemanticError::UndefinedVariable(name) if name == "Math")),
+            "Expected UndefinedVariable error for 'Math', got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_module_qualified_access_with_non_exported_symbol() {
+        // First define a module with private function
+        // grove Math with
+        //     chant _private_helper() then yield 42 end
+        //     chant sqrt(x) then yield x end
+        //     offer sqrt  # Only sqrt is public, not _private_helper
+        // end
+        //
+        // Then try to access the private function
+        // summon Math from "std/math.gw"
+        // Math._private_helper()  # Should error: not exported!
+        let ast = vec![
+            AstNode::ModuleDecl {
+                name: "Math".to_string(),
+                body: vec![
+                    AstNode::ChantDef {
+                        name: "_private_helper".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        return_type: None,
+                        body: vec![AstNode::YieldStmt {
+                            value: Box::new(AstNode::Number(42.0)),
+                        }],
+                    },
+                    AstNode::ChantDef {
+                        name: "sqrt".to_string(),
+                        type_params: vec![],
+                        params: vec![Parameter {
+                            name: "x".to_string(),
+                            typ: None,
+                            is_variadic: false,
+                        }],
+                        return_type: None,
+                        body: vec![AstNode::YieldStmt {
+                            value: Box::new(AstNode::Ident("x".to_string())),
+                        }],
+                    },
+                ],
+                exports: vec!["sqrt".to_string()], // Only sqrt is exported
+            },
+            AstNode::Import {
+                module_name: "Math".to_string(),
+                path: "std/math.gw".to_string(),
+                items: None,
+                alias: None,
+            },
+            AstNode::Call {
+                callee: Box::new(AstNode::ModuleAccess {
+                    module: "Math".to_string(),
+                    member: "_private_helper".to_string(),
+                }),
+                args: vec![],
+                type_args: vec![],
+            },
+        ];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should have a SymbolNotExported error
+        assert!(result.is_err(), "Expected error for non-exported symbol");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                SemanticError::SymbolNotExported { symbol, module }
+                if symbol == "_private_helper" && module == "Math"
+            )),
+            "Expected SymbolNotExported error, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_module_qualified_access_with_valid_export() {
+        // Define module and access exported symbol
+        // grove Math with
+        //     chant sqrt(x) then yield x end
+        //     offer sqrt
+        // end
+        // summon Math from "std/math.gw"
+        // Math.sqrt(16)
+        let ast = vec![
+            AstNode::ModuleDecl {
+                name: "Math".to_string(),
+                body: vec![AstNode::ChantDef {
+                    name: "sqrt".to_string(),
+                    type_params: vec![],
+                    params: vec![Parameter {
+                        name: "x".to_string(),
+                        typ: None,
+                        is_variadic: false,
+                    }],
+                    return_type: None,
+                    body: vec![AstNode::YieldStmt {
+                        value: Box::new(AstNode::Ident("x".to_string())),
+                    }],
+                }],
+                exports: vec!["sqrt".to_string()],
+            },
+            AstNode::Import {
+                module_name: "Math".to_string(),
+                path: "std/math.gw".to_string(),
+                items: None,
+                alias: None,
+            },
+            AstNode::Call {
+                callee: Box::new(AstNode::ModuleAccess {
+                    module: "Math".to_string(),
+                    member: "sqrt".to_string(),
+                }),
+                args: vec![AstNode::Number(16.0)],
+                type_args: vec![],
+            },
+        ];
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let result = analyzer.analyze(&ast);
+
+        // Should not have any errors - all accesses are valid
+        assert!(result.is_ok(), "Expected no errors but got: {:?}", result);
     }
 }

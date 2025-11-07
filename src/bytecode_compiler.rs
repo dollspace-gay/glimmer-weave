@@ -716,6 +716,37 @@ impl BytecodeCompiler {
                 Ok(Some(reg))
             }
 
+            // === Module System (Phase 5: Bytecode VM Support) ===
+            AstNode::ModuleDecl { name, body: _, exports: _ } => {
+                // Module declarations in bytecode compilation require multi-file compilation
+                // For Phase 5, we treat this as unsupported in single-chunk compilation
+                // Future: Implement module-level compilation units
+                Err(CompileError::UnsupportedFeature(format!(
+                    "Module declarations not yet supported in bytecode compiler (multi-file compilation required). Module: {}",
+                    name
+                )))
+            }
+
+            AstNode::Import { module_name, path, items: _, alias: _ } => {
+                // Module imports require runtime module resolution
+                // For Phase 5, we treat this as unsupported
+                // Future: Integrate with ModuleResolver for bytecode
+                Err(CompileError::UnsupportedFeature(format!(
+                    "Module imports not yet supported in bytecode compiler. Attempted to import {} from {}",
+                    module_name, path
+                )))
+            }
+
+            AstNode::Export { items } => {
+                // Export statements are no-ops in the compiler
+                // Exports are tracked during ModuleDecl processing
+                // Since ModuleDecl is not yet supported, this is also unsupported
+                Err(CompileError::UnsupportedFeature(format!(
+                    "Module exports not yet supported in bytecode compiler. Attempted to export: {:?}",
+                    items
+                )))
+            }
+
             _ => {
                 // Try compiling as expression
                 let reg = self.compile_expr(node)?;
@@ -970,6 +1001,18 @@ impl BytecodeCompiler {
                 }
 
                 Ok(dest_reg)
+            }
+
+            //  === Module System (Phase 5: Bytecode VM Support) ===
+            AstNode::ModuleAccess { module, member } => {
+                // For Phase 5, we handle module-qualified access as global variable lookup
+                // The qualified name "Module.member" is stored as a global variable
+                // This matches the interpreter's approach for imported symbols
+                let qualified_name = format!("{}.{}", module, member);
+                let reg = self.alloc_register()?;
+                let name_id = self.add_string_constant(qualified_name.clone());
+                self.emit(Instruction::LoadGlobal { dest: reg, name_id }, 0);
+                Ok(reg)
             }
 
             _ => Err(CompileError::UnsupportedFeature(format!("{:?}", node))),
@@ -1244,5 +1287,89 @@ mod tests {
         });
 
         assert!(has_store_local, "Pattern binding should emit StoreLocal");
+    }
+
+    // === Module System Tests (Phase 5) ===
+
+    #[test]
+    fn test_module_declaration_unsupported() {
+        // Module declarations should return UnsupportedFeature error
+        let result = compile_source(r#"
+grove Math with
+    chant add(a, b) then
+        yield a + b
+    end
+    offer add
+end
+        "#);
+
+        assert!(result.is_err(), "Module declarations should fail in bytecode compiler");
+        let err = result.unwrap_err();
+        match err {
+            CompileError::UnsupportedFeature(msg) => {
+                assert!(msg.contains("Module"), "Error should mention module");
+                assert!(msg.contains("Math"), "Error should mention module name");
+            }
+            _ => panic!("Expected UnsupportedFeature error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_import_unsupported() {
+        // Module imports should return UnsupportedFeature error
+        let result = compile_source(r#"
+summon Math from "std/math.gw"
+        "#);
+
+        assert!(result.is_err(), "Module imports should fail in bytecode compiler");
+        let err = result.unwrap_err();
+        match err {
+            CompileError::UnsupportedFeature(msg) => {
+                assert!(msg.contains("import"), "Error should mention import");
+                assert!(msg.contains("Math"), "Error should mention module name");
+            }
+            _ => panic!("Expected UnsupportedFeature error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_export_unsupported() {
+        // Export statements should return UnsupportedFeature error
+        let result = compile_source(r#"
+offer add, mul
+        "#);
+
+        assert!(result.is_err(), "Module exports should fail in bytecode compiler");
+        let err = result.unwrap_err();
+        match err {
+            CompileError::UnsupportedFeature(msg) => {
+                assert!(msg.contains("export"), "Error should mention export");
+            }
+            _ => panic!("Expected UnsupportedFeature error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_module_qualified_access_compiles() {
+        // Module-qualified access should compile to LoadGlobal with qualified name
+        // This allows the interpreter to set up qualified names as globals
+        let ast = vec![
+            AstNode::ModuleAccess {
+                module: "Math".to_string(),
+                member: "add".to_string(),
+            }
+        ];
+
+        let mut compiler = BytecodeCompiler::new("test".to_string());
+        let result = compiler.compile_expr(&ast[0]);
+
+        // Should compile successfully
+        assert!(result.is_ok(), "Module-qualified access should compile");
+
+        // Should emit LoadGlobal with qualified name "Math.add"
+        let has_load_global = compiler.chunk.instructions.iter().any(|inst| {
+            matches!(inst, Instruction::LoadGlobal { .. })
+        });
+        assert!(has_load_global, "Should emit LoadGlobal for qualified access");
     }
 }

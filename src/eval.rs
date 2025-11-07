@@ -419,6 +419,15 @@ pub struct Evaluator {
     trait_definitions: BTreeMap<String, TraitDefinition>,
     /// Trait implementations (embody statements)
     trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
+
+    // === Module System (Phase 4) ===
+    /// Module resolver for loading external modules
+    module_resolver: Option<crate::module_resolver::ModuleResolver>,
+    /// Module-level environments (module_name -> environment)
+    module_environments: BTreeMap<String, Environment>,
+    /// Imported modules tracking (effective_name -> items)
+    /// None = import all, Some(list) = import specific items
+    imported_modules: BTreeMap<String, Option<Vec<String>>>,
 }
 
 impl Default for Evaluator {
@@ -434,6 +443,9 @@ impl Evaluator {
             environment: Environment::new(),
             trait_definitions: BTreeMap::new(),
             trait_implementations: BTreeMap::new(),
+            module_resolver: None,
+            module_environments: BTreeMap::new(),
+            imported_modules: BTreeMap::new(),
         };
 
         // Register builtin runtime library functions
@@ -450,6 +462,16 @@ impl Evaluator {
     /// Get a reference to the environment
     pub fn environment(&self) -> &Environment {
         &self.environment
+    }
+
+    /// Set the module resolver for loading external modules
+    ///
+    /// This must be called before evaluating code that uses imports.
+    ///
+    /// # Arguments
+    /// * `resolver` - The module resolver to use
+    pub fn set_module_resolver(&mut self, resolver: crate::module_resolver::ModuleResolver) {
+        self.module_resolver = Some(resolver);
     }
 
     /// Evaluate a list of statements (program or block)
@@ -1424,6 +1446,164 @@ impl Evaluator {
             }
             AstNode::SeekExpr { .. } => {
                 Err(RuntimeError::Custom("World-Tree queries not yet implemented".to_string()))
+            }
+
+            // === Module System (Phase 4: Interpreter Support) ===
+            AstNode::ModuleDecl { name, body, exports } => {
+                // Create a new environment for the module
+                let mut module_env = Environment::new();
+
+                // Copy builtins from global environment (first scope)
+                if let Some(global_scope) = self.environment.scopes.first() {
+                    for (name, binding) in global_scope {
+                        module_env.define(name.clone(), binding.value.clone());
+                    }
+                }
+
+                // Save current environment and switch to module environment
+                let saved_env = core::mem::replace(&mut self.environment, module_env);
+
+                // Evaluate module body
+                let mut result = Value::Nothing;
+                for stmt in body {
+                    result = self.eval_node(stmt)?;
+                }
+
+                // Extract exported symbols from module environment
+                let module_env = core::mem::replace(&mut self.environment, saved_env);
+
+                // Store module environment for later access
+                self.module_environments.insert(name.clone(), module_env);
+
+                // Verify all exports exist (similar to semantic analysis)
+                // This is optional runtime validation
+                for export_name in exports {
+                    if let Some(module_env) = self.module_environments.get(name) {
+                        if module_env.get(export_name).is_err() {
+                            return Err(RuntimeError::Custom(format!(
+                                "Export '{}' not found in module '{}'",
+                                export_name, name
+                            )));
+                        }
+                    }
+                }
+
+                Ok(result)
+            }
+
+            AstNode::Import { module_name, path, items, alias } => {
+                // Determine effective module name (alias takes precedence)
+                let effective_name = alias.as_ref().unwrap_or(module_name);
+
+                // Load module info (must complete before we can eval)
+                let (module_name_resolved, module_ast, module_exports) = {
+                    // Check if module resolver is available
+                    let resolver = self.module_resolver.as_mut().ok_or_else(|| {
+                        RuntimeError::Custom(
+                            "Module resolver not configured. Call set_module_resolver() before importing modules.".to_string()
+                        )
+                    })?;
+
+                    // Resolve the module path
+                    let resolved_path = resolver.resolve_path(path, None).map_err(|e| {
+                        RuntimeError::Custom(format!("Failed to resolve module path '{}': {:?}", path, e))
+                    })?;
+
+                    // Load the module
+                    let module_info = resolver.load_module(&resolved_path).map_err(|e| {
+                        RuntimeError::Custom(format!("Failed to load module from '{}': {:?}", resolved_path, e))
+                    })?;
+
+                    // Clone the data we need (releases the borrow of module_resolver)
+                    (module_info.name.clone(), module_info.ast.clone(), module_info.exports.clone())
+                };
+
+                // Check if module has already been evaluated
+                if !self.module_environments.contains_key(&module_name_resolved) {
+                    // Evaluate the module if not already done
+                    // This will populate module_environments
+                    for node in &module_ast {
+                        self.eval_node(node)?;
+                    }
+                }
+
+                // Get the module environment
+                let module_env = self.module_environments.get(&module_name_resolved).ok_or_else(|| {
+                    RuntimeError::Custom(format!(
+                        "Module '{}' not found after evaluation. This is a bug.",
+                        module_name_resolved
+                    ))
+                })?;
+
+                // Import symbols based on items list
+                match items {
+                    None => {
+                        // Import all exports
+                        // In the interpreter, we don't have explicit export tracking per symbol,
+                        // so we'll import all symbols from the module environment
+                        for export_name in &module_exports {
+                            if let Ok(value) = module_env.get(export_name) {
+                                // For "summon Module from path", prefix with module name
+                                let qualified_name = format!("{}.{}", effective_name, export_name);
+                                self.environment.define(qualified_name, value);
+                            }
+                        }
+
+                        // Also store a reference to the module for qualified access
+                        self.imported_modules.insert(effective_name.clone(), None);
+                    }
+                    Some(item_list) => {
+                        // Import specific items
+                        for item in item_list {
+                            if let Ok(value) = module_env.get(item) {
+                                // For "gather x, y from Module", import directly (no prefix)
+                                self.environment.define(item.clone(), value);
+                            } else {
+                                return Err(RuntimeError::Custom(format!(
+                                    "Symbol '{}' not found in module '{}'",
+                                    item, module_name_resolved
+                                )));
+                            }
+                        }
+
+                        self.imported_modules.insert(effective_name.clone(), Some(item_list.clone()));
+                    }
+                }
+
+                Ok(Value::Nothing)
+            }
+
+            AstNode::Export { items: _ } => {
+                // Export statements are handled during ModuleDecl evaluation
+                // This is a no-op in the interpreter
+                // Exports are tracked when the module is declared
+                Ok(Value::Nothing)
+            }
+
+            AstNode::ModuleAccess { module, member } => {
+                // Check if module is imported
+                if !self.imported_modules.contains_key(module) {
+                    return Err(RuntimeError::Custom(format!(
+                        "Module '{}' not imported. Use 'summon {} from \"path\"' to import it.",
+                        module, module
+                    )));
+                }
+
+                // For qualified access (Module.member), look up the qualified name
+                // that was defined during import
+                let qualified_name = format!("{}.{}", module, member);
+                self.environment.get(&qualified_name).or_else(|_| {
+                    // If not found with qualified name, try looking in the module environment directly
+                    // This handles the case where the module was evaluated but imports weren't set up correctly
+                    if let Some(module_env) = self.module_environments.get(module) {
+                        module_env.get(member)
+                    } else {
+                        Err(RuntimeError::Custom(format!(
+                            "Symbol '{}' not found in module '{}'",
+                            member, module
+                        )))
+                    }
+                })
             }
         }
     }
@@ -2440,5 +2620,150 @@ request Console.VGA.write with justification "debug output"
             }
             _ => panic!("Expected Capability, got {:?}", result),
         }
+    }
+
+    // === Module System Tests (Phase 4) ===
+
+    #[test]
+    fn test_module_declaration() {
+        // Test basic module declaration with exports
+        let source = r#"
+grove Math with
+    chant add(a, b) then
+        yield a + b
+    end
+
+    chant private_helper() then
+        yield 42
+    end
+
+    offer add
+end
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_ok(), "Module declaration should succeed");
+    }
+
+    #[test]
+    fn test_module_export_validation() {
+        // Test that exports are validated at runtime
+        let source = r#"
+grove Math with
+    chant add(a, b) then
+        yield a + b
+    end
+
+    offer add, nonexistent  # Error: nonexistent not defined
+end
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Should fail when export doesn't exist");
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("nonexistent"), "Error should mention missing export");
+    }
+
+    #[test]
+    fn test_import_without_resolver() {
+        // Test that imports fail without a module resolver
+        let source = r#"
+summon Math from "std/math.gw"
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Import should fail without resolver");
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("Module resolver not configured"),
+                "Error should indicate missing resolver");
+    }
+
+    #[test]
+    fn test_module_qualified_access_not_imported() {
+        // Test that qualified access fails when module not imported
+        let source = r#"
+bind x to Math.add(1, 2)
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_err(), "Should fail when accessing non-imported module");
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("not imported") || err_msg.contains("UndefinedVariable"),
+                "Error should indicate module not imported");
+    }
+
+    #[test]
+    fn test_export_statement_noop() {
+        // Test that export statement is a no-op (handled by ModuleDecl)
+        let source = r#"
+offer add, mul
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_ok(), "Export statement should be a no-op");
+        assert_eq!(result.unwrap(), Value::Nothing);
+    }
+
+    #[test]
+    fn test_module_environment_isolation() {
+        // Test that module environments are isolated
+        let source = r#"
+bind global_var to 100
+
+grove Math with
+    bind global_var to 42  # Should shadow, not modify global
+
+    chant get_value() then
+        yield global_var
+    end
+
+    offer get_value
+end
+
+global_var  # Should still be 100
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_ok(), "Module environment isolation test should succeed");
+        assert_eq!(result.unwrap(), Value::Number(100.0),
+                   "Global variable should not be modified by module");
+    }
+
+    #[test]
+    fn test_module_nested_functions() {
+        // Test that modules can define functions that call other functions
+        let source = r#"
+grove Math with
+    chant add(a, b) then
+        yield a + b
+    end
+
+    chant add_three(a, b, c) then
+        yield add(add(a, b), c)
+    end
+
+    offer add_three
+end
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_ok(), "Nested function calls in module should work");
+    }
+
+    #[test]
+    fn test_module_builtins_available() {
+        // Test that builtins are available in module scope
+        let source = r#"
+grove Utils with
+    chant num_to_str(n) then
+        yield to_text(n)  # to_text is a builtin
+    end
+
+    offer num_to_str
+end
+        "#;
+
+        let result = eval_program(source);
+        assert!(result.is_ok(), "Builtins should be available in modules");
     }
 }

@@ -216,6 +216,29 @@ pub enum AstNode {
         justification: String,
     },
 
+    // === Module System ===
+
+    /// Module declaration: `grove Math with body end`
+    ModuleDecl {
+        name: String,
+        body: Vec<AstNode>,
+        exports: Vec<String>,  // Items listed in 'offer'
+    },
+
+    /// Import statement: `summon Math from "std/math.gw"`
+    /// or selective: `gather sqrt, pow from Math`
+    Import {
+        module_name: String,
+        path: String,
+        items: Option<Vec<String>>,  // None = import all (summon), Some = specific items (gather)
+        alias: Option<String>,        // Optional 'as' alias
+    },
+
+    /// Export statement: `offer sqrt, pow`
+    Export {
+        items: Vec<String>,
+    },
+
     // === Expressions ===
 
     /// Numeric literal: `42`, `3.14`
@@ -284,6 +307,12 @@ pub enum AstNode {
     FieldAccess {
         object: Box<AstNode>,
         field: String,
+    },
+
+    /// Module-qualified access: `Math.sqrt`, `Collections.List`
+    ModuleAccess {
+        module: String,
+        member: String,
     },
 
     /// Index access: `list[0]`

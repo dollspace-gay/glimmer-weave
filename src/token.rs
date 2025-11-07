@@ -73,6 +73,18 @@ pub enum Token {
     /// `embody` - Trait implementation
     Embody,
 
+    // === Module System ===
+    /// `grove` - Module declaration
+    Grove,
+    /// `offer` - Export declaration
+    Offer,
+    /// `summon` - Import entire module
+    Summon,
+    /// `gather` - Import specific items
+    Gather,
+    /// `from` - Import source specifier
+    From,
+
     /// `seek` - Query/search keyword
     Seek,
     /// `where` - Query filter
@@ -238,6 +250,11 @@ impl Token {
                 | Token::Yield
                 | Token::Form
                 | Token::Variant
+                | Token::Grove
+                | Token::Offer
+                | Token::Summon
+                | Token::Gather
+                | Token::From
                 | Token::Seek
                 | Token::Where
                 | Token::By
@@ -278,6 +295,10 @@ impl Token {
                 | Token::Chant
                 | Token::Form
                 | Token::Variant
+                | Token::Grove
+                | Token::Summon
+                | Token::Gather
+                | Token::Offer
                 | Token::Seek
                 | Token::Attempt
                 | Token::Match
@@ -311,6 +332,11 @@ impl Token {
             Token::Variant => "variant",
             Token::Aspect => "aspect",
             Token::Embody => "embody",
+            Token::Grove => "grove",
+            Token::Offer => "offer",
+            Token::Summon => "summon",
+            Token::Gather => "gather",
+            Token::From => "from",
             Token::Seek => "seek",
             Token::Where => "where",
             Token::By => "by",

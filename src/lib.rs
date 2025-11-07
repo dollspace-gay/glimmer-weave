@@ -82,6 +82,11 @@ pub mod native_allocator {
     //! The allocator is implemented in `src/native_allocator.S` and linked via build.rs.
 
     extern "C" {
+        /// Initialize the allocator
+        ///
+        /// This is called automatically on first gl_malloc, but can be called explicitly.
+        pub fn gl_init_allocator();
+
         /// Allocate `size` bytes of memory on the heap
         ///
         /// Returns a pointer to the allocated memory, or NULL if allocation fails.

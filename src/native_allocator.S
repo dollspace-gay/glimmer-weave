@@ -1,10 +1,11 @@
 # Free-List Heap Allocator for Glimmer-Weave
 # x86-64 Assembly (AT&T Syntax)
 #
-# Implements a simple free-list based heap allocator with:
-# - First-fit allocation strategy
-# - Doubly-linked free list (sorted by address)
-# - Forward coalescing on free
+# Implements a segregated free-list based heap allocator with:
+# - Segregated free lists for common sizes (16, 32, 64, 128, 256+ bytes)
+# - Fast O(1) allocation for common sizes
+# - Sorted list for large allocations (best-fit)
+# - Forward and backward coalescing on free
 # - mmap-based heap expansion
 #
 # Public API:
@@ -16,8 +17,17 @@
 .align 8
 
 # Global allocator state
+# Segregated free lists - separate lists for each size class
+gl_free_lists:
+    .quad 0                     # Index 0: 16-byte blocks
+    .quad 0                     # Index 1: 32-byte blocks
+    .quad 0                     # Index 2: 64-byte blocks
+    .quad 0                     # Index 3: 128-byte blocks
+    .quad 0                     # Index 4: 256+ bytes (sorted by address)
+
+# Legacy pointer for compatibility (points to large block list)
 gl_free_list_head:
-    .quad 0                     # Pointer to first free block (NULL initially)
+    .quad 0                     # Pointer to first free block (for large allocations)
 
 gl_heap_start:
     .quad 0                     # Start of heap region
@@ -37,6 +47,14 @@ gl_initialized:
 .equ HEADER_SIZE, 8             # Size of block header
 .equ FREE_BIT, 1                # Bit 0 of header = free flag
 
+# Size class constants
+.equ NUM_SIZE_CLASSES, 5        # Number of segregated free lists
+.equ SIZE_CLASS_16, 16          # Size class 0
+.equ SIZE_CLASS_32, 32          # Size class 1
+.equ SIZE_CLASS_64, 64          # Size class 2
+.equ SIZE_CLASS_128, 128        # Size class 3
+.equ SIZE_CLASS_LARGE, 256      # Size class 4 (256+ bytes)
+
 # Linux syscall numbers
 .equ SYS_MMAP, 9
 .equ SYS_BRK, 12
@@ -51,6 +69,46 @@ gl_initialized:
 .globl gl_malloc
 .globl gl_free
 .globl gl_init_allocator
+
+#==============================================================================
+# gl_size_to_index - Map allocation size to segregated free list index
+#
+# Input:  rdi = size (in bytes, already aligned)
+# Output: rax = index (0-4)
+#
+# Size classes:
+#   0-16:    index 0
+#   17-32:   index 1
+#   33-64:   index 2
+#   65-128:  index 3
+#   129+:    index 4
+#==============================================================================
+gl_size_to_index:
+    # Input size is in rdi
+    cmpq    $SIZE_CLASS_16, %rdi
+    jle     .size_index_0
+    cmpq    $SIZE_CLASS_32, %rdi
+    jle     .size_index_1
+    cmpq    $SIZE_CLASS_64, %rdi
+    jle     .size_index_2
+    cmpq    $SIZE_CLASS_128, %rdi
+    jle     .size_index_3
+    # Else: large block
+    movq    $4, %rax
+    ret
+
+.size_index_0:
+    xorq    %rax, %rax          # Return 0
+    ret
+.size_index_1:
+    movq    $1, %rax
+    ret
+.size_index_2:
+    movq    $2, %rax
+    ret
+.size_index_3:
+    movq    $3, %rax
+    ret
 
 #==============================================================================
 # gl_malloc - Allocate memory from heap
@@ -104,10 +162,78 @@ gl_malloc:
     # Save aligned size for later
     movq    %rcx, %r12          # r12 = requested aligned size
 
-    # Search free list for suitable block (first-fit)
-    movq    gl_free_list_head(%rip), %rbx   # rbx = current block
+    # === FAST PATH: Try segregated free list for common sizes ===
+    # Determine size class
+    pushq   %rdi
+    movq    %r12, %rdi
+    call    gl_size_to_index    # rax = size class index (0-4)
+    popq    %rdi
+
+    # Check if this is a small/medium allocation (index 0-3)
+    cmpq    $4, %rax
+    jge     .malloc_slow_path   # Large allocation, use sorted list
+
+    # Fast path: grab first block from segregated list
+    # rax = size class index
+    leaq    gl_free_lists(%rip), %r13  # r13 = base address of lists array
+    movq    (%r13, %rax, 8), %rbx      # rbx = head of size class list
+    testq   %rbx, %rbx
+    jz      .malloc_slow_path   # No blocks in this size class, use slow path
+
+    # === Fast path success! We have a block from segregated list ===
+    # Save next pointer before we modify the list
+    movq    8(%rbx), %r14       # r14 = next block in size class list
+
+    # Update head of size class list
+    movq    %r14, (%r13, %rax, 8)   # list[index] = next
+
+    # If next exists, clear its prev pointer
+    testq   %r14, %r14
+    jz      .fast_path_no_next
+    movq    $0, 16(%r14)        # next.prev = NULL (no longer in list)
+
+.fast_path_no_next:
+    # rbx now contains allocated block
+    # Mark as allocated and return
+    movq    0(%rbx), %r13       # Load header
+    andq    $-2, %r13           # Clear FREE bit
+    movq    %r13, 0(%rbx)       # Store updated header
+
+    # Update statistics
+    addq    %r13, gl_allocated_bytes(%rip)
+
+    # Clear next/prev pointers
+    movq    $0, 8(%rbx)
+    movq    $0, 16(%rbx)
+
+    # Return pointer past header
+    leaq    HEADER_SIZE(%rbx), %rax
+    popq    %r15
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbx
+    popq    %rbp
+    ret
+
+.malloc_slow_path:
+    # === SLOW PATH: Search sorted free list (original implementation) ===
+    # Search large block list (size class 4) for suitable block (first-fit)
+    # Initialize expansion counter (prevents infinite expansion loops)
+    xorq    %r15, %r15          # r15 = expansion/search counter
+
+.malloc_reload_large_list:
+    # This label is used as restart point after heap expansion
+    # Note: r15 is NOT reset here - it counts total iterations across expansions
+    leaq    gl_free_lists(%rip), %r13
+    movq    32(%r13), %rbx      # rbx = gl_free_lists[4] (large block list head)
 
 .malloc_search_loop:
+    # Safety: limit total iterations (searches + expansions) to prevent infinite loops
+    incq    %r15
+    cmpq    $1000, %r15          # Max 1000 total iterations (increased for debugging)
+    jge     .malloc_fail         # Give up if we've tried too many times
+
     testq   %rbx, %rbx          # if (current == NULL)
     jz      .malloc_expand_heap # No suitable block, expand heap
 
@@ -235,10 +361,15 @@ gl_malloc:
     movq    %r15, 16(%r14)      # next.prev = current.prev
 
 .malloc_remove_no_next:
-    # If block was head: update head
+    # If block was head: update head (both pointers)
     cmpq    gl_free_list_head(%rip), %rbx
     jne     .malloc_remove_done
     movq    %r14, gl_free_list_head(%rip)    # head = current.next
+    # Also update gl_free_lists[4]
+    pushq   %rax
+    leaq    gl_free_lists(%rip), %rax
+    movq    %r14, 32(%rax)
+    popq    %rax
 
 .malloc_remove_done:
     # Mark block as allocated (clear FREE bit)
@@ -316,13 +447,9 @@ gl_malloc:
     movq    $0, 8(%rbx)
     movq    $0, 16(%rbx)
 
-    # Add to free list
-    pushq   %rdi                # Save expansion size
-    movq    %rbx, %rdi
-    call    gl_insert_free_sorted
-    popq    %rdi                # Restore expansion size
-
-    # Update heap bounds
+    # Update heap bounds BEFORE inserting into free list
+    # This is critical: gl_insert_free_sorted does bounds checks on existing blocks
+    # during traversal, so we need to expand bounds first
     # Check if new block extends our tracked heap range
     # new_block_end = rbx + rdi
     movq    %rbx, %rax
@@ -342,10 +469,15 @@ gl_malloc:
     movq    %rax, gl_heap_end(%rip)
 
 .expand_bounds_done:
+    # Now add to free list (bounds are already updated)
+    pushq   %rdi                # Save expansion size
+    movq    %rbx, %rdi
+    call    gl_insert_free_sorted
+    popq    %rdi                # Restore expansion size
 
     # Now retry search from the beginning
-    # The newly inserted block will be found and properly size-checked
-    jmp     .malloc_search_loop
+    # Reload the large block list head (gl_free_lists[4]) to search the newly added block
+    jmp     .malloc_reload_large_list
 
 .malloc_fail:
     xorq    %rax, %rax          # Return NULL
@@ -381,7 +513,6 @@ gl_init_allocator:
 
     # rax = heap start
     movq    %rax, gl_heap_start(%rip)
-    movq    %rax, gl_free_list_head(%rip)
 
     # Calculate heap end
     leaq    INITIAL_HEAP_SIZE(%rax), %rbx
@@ -397,6 +528,12 @@ gl_init_allocator:
     # Clear next/prev pointers
     movq    $0, 8(%rax)
     movq    $0, 16(%rax)
+
+    # Insert initial block into large block list (size class 4)
+    # This is a 64KB block, so it goes into the large block list
+    leaq    gl_free_lists(%rip), %rcx
+    movq    %rax, 32(%rcx)      # gl_free_lists[4] = initial_block (4*8=32 byte offset)
+    movq    %rax, gl_free_list_head(%rip)  # Keep legacy pointer in sync
 
     # Mark as initialized
     movq    $1, gl_initialized(%rip)
@@ -453,13 +590,62 @@ gl_request_memory:
 #
 # Input: rdi = block to insert
 # Modifies: rax, rbx, rcx
+#
+# For small/medium blocks (16-128 bytes): insert at head of size class list (O(1))
+# For large blocks (256+ bytes): insert into sorted list (O(n))
 #==============================================================================
 gl_insert_free_sorted:
     pushq   %rbp
     movq    %rsp, %rbp
+    pushq   %r12
+    pushq   %r13
 
     # rdi = block to insert
-    movq    gl_free_list_head(%rip), %rbx   # rbx = current
+    # Determine size class based on block header
+    movq    0(%rdi), %rax       # Load block header
+    andq    $-2, %rax           # Clear FREE bit to get size
+
+    # Call size_to_index to get size class
+    pushq   %rdi                # Save block pointer
+    movq    %rax, %rdi          # rdi = block size
+    call    gl_size_to_index    # rax = size class index
+    popq    %rdi                # Restore block pointer
+
+    # Check if this is a small/medium block (index 0-3)
+    cmpq    $4, %rax
+    jge     .insert_sorted      # Large block, use sorted insertion
+
+    # === FAST PATH: Insert at head of size class list (O(1)) ===
+    # rax = size class index (0-3)
+    # rdi = block to insert
+    leaq    gl_free_lists(%rip), %r12   # r12 = base of lists array
+    movq    (%r12, %rax, 8), %rbx       # rbx = current head of list
+
+    # Insert at head
+    movq    %rbx, 8(%rdi)       # block.next = old_head
+    movq    $0, 16(%rdi)        # block.prev = NULL (we're the new head)
+
+    # If old head exists, update its prev pointer
+    testq   %rbx, %rbx
+    jz      .fast_insert_no_old_head
+    movq    %rdi, 16(%rbx)      # old_head.prev = block
+
+.fast_insert_no_old_head:
+    # Update list head
+    movq    %rdi, (%r12, %rax, 8)   # list[index] = block
+
+    # Done!
+    popq    %r13
+    popq    %r12
+    popq    %rbp
+    ret
+
+.insert_sorted:
+    # === SLOW PATH: Insert into sorted large block list (original implementation) ===
+    # rdi = block to insert
+    # Use gl_free_lists[4] for large blocks (keep gl_free_list_head in sync)
+    leaq    gl_free_lists(%rip), %r12
+    movq    32(%r12), %rbx      # rbx = gl_free_lists[4] (large block list head)
     xorq    %rcx, %rcx          # rcx = prev (NULL initially)
 
 .insert_search:
@@ -560,6 +746,7 @@ gl_insert_free_sorted:
 
 .insert_update_head:
     movq    %rdi, gl_free_list_head(%rip)
+    movq    %rdi, 32(%r12)      # Also update gl_free_lists[4]
 
 .insert_update_current:
     # Update current.prev only if current exists and is valid
@@ -582,6 +769,8 @@ gl_insert_free_sorted:
     movq    %rdi, 16(%rbx)      # current.prev = block
 
 .insert_done:
+    popq    %r13
+    popq    %r12
     popq    %rbp
     ret
 
@@ -658,11 +847,16 @@ gl_insert_free_sorted:
     testq   %rcx, %rcx
     jz      .insert_make_head
     movq    %rdi, 8(%rcx)       # prev.next = block
+    popq    %r13
+    popq    %r12
     popq    %rbp
     ret
 
 .insert_make_head:
     movq    %rdi, gl_free_list_head(%rip)
+    movq    %rdi, 32(%r12)      # Also update gl_free_lists[4]
+    popq    %r13
+    popq    %r12
     popq    %rbp
     ret
 

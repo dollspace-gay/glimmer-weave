@@ -33,3 +33,15 @@ path = "src/lib.rs"
 name = "glimmer-repl"
 path = "src/bin/repl.rs"
 required-features = ["repl"]
+
+[[bench]]
+name = "allocator_bench"
+path = "benches/allocator_bench.rs"
+harness = false
+required-features = ["std"]
+
+[[bench]]
+name = "allocator_bench_simple"
+path = "benches/allocator_bench_simple.rs"
+harness = false
+required-features = ["std"]

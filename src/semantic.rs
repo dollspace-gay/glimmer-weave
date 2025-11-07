@@ -170,12 +170,18 @@ pub enum SemanticError {
 }
 
 /// Symbol in the symbol table
+///
+/// FUTURE: The `name` and `defined` fields will be used for:
+/// - Better error messages (showing variable names in diagnostics)
+/// - Forward declaration support (functions declared before definition)
+/// - Symbol table introspection and debugging tools
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
-struct Symbol {
-    name: String,
-    typ: Type,
-    mutable: bool,
-    defined: bool,  // For forward declarations
+pub struct Symbol {
+    pub name: String,
+    pub typ: Type,
+    pub mutable: bool,
+    pub defined: bool,  // For forward declarations
 }
 
 /// Scope in the symbol table
@@ -211,6 +217,12 @@ impl Scope {
 pub struct SymbolTable {
     scopes: Vec<Scope>,
     current_scope: usize,
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SymbolTable {
@@ -266,6 +278,11 @@ impl SymbolTable {
 }
 
 /// Trait definition information
+///
+/// FUTURE: Used for static trait checking and type system integration.
+/// Will enable compile-time verification that types implement required traits
+/// and provide better error messages for missing trait implementations.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TraitDefinition {
     name: String,
@@ -282,6 +299,11 @@ struct TraitImplKey {
 }
 
 /// Trait implementation information
+///
+/// FUTURE: Used for verifying trait implementations match trait definitions.
+/// Will enable checking that all required methods are implemented with correct
+/// signatures and types, providing Rust-like trait safety.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TraitImplementation {
     aspect_name: String,
@@ -305,6 +327,12 @@ pub struct SemanticAnalyzer {
     trait_definitions: BTreeMap<String, TraitDefinition>,
     /// Trait implementations registry (aspect_name, target_type) -> implementation
     trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
+}
+
+impl Default for SemanticAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SemanticAnalyzer {
@@ -413,26 +441,34 @@ impl SemanticAnalyzer {
 
     /// Convert a TypeAnnotation to a normalized string for trait implementation lookups
     fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
-        match ann {
-            TypeAnnotation::Named(name) => name.clone(),
-            TypeAnnotation::Generic(name) => name.clone(),
-            TypeAnnotation::List(inner) => {
-                format!("List<{}>", self.type_annotation_to_string(inner))
-            }
-            TypeAnnotation::Parametrized { name, type_args } => {
-                let args: Vec<String> = type_args
-                    .iter()
-                    .map(|arg| self.type_annotation_to_string(arg))
-                    .collect();
-                format!("{}<{}>", name, args.join(", "))
-            }
-            TypeAnnotation::Map => "Map".to_string(),
-            TypeAnnotation::Function { .. } => "Function".to_string(),
-            TypeAnnotation::Optional(inner) => {
-                format!("{}?", self.type_annotation_to_string(inner))
-            }
+        semantic_type_annotation_to_string(ann)
+    }
+}
+
+/// Convert a TypeAnnotation to a normalized string for trait implementation lookups (standalone helper)
+fn semantic_type_annotation_to_string(ann: &TypeAnnotation) -> String {
+    match ann {
+        TypeAnnotation::Named(name) => name.clone(),
+        TypeAnnotation::Generic(name) => name.clone(),
+        TypeAnnotation::List(inner) => {
+            format!("List<{}>", semantic_type_annotation_to_string(inner))
+        }
+        TypeAnnotation::Parametrized { name, type_args } => {
+            let args: Vec<String> = type_args
+                .iter()
+                .map(semantic_type_annotation_to_string)
+                .collect();
+            format!("{}<{}>", name, args.join(", "))
+        }
+        TypeAnnotation::Map => "Map".to_string(),
+        TypeAnnotation::Function { .. } => "Function".to_string(),
+        TypeAnnotation::Optional(inner) => {
+            format!("{}?", semantic_type_annotation_to_string(inner))
         }
     }
+}
+
+impl SemanticAnalyzer {
 
     /// Register builtin runtime library functions
     fn register_builtins(&mut self) {
@@ -898,7 +934,7 @@ impl SemanticAnalyzer {
 
             // === Control Flow ===
             AstNode::IfStmt { condition, then_branch, else_branch } => {
-                let cond_type = self.analyze_node(condition);
+                let _cond_type = self.analyze_node(condition);
                 // Condition can be any type (truthiness)
 
                 // Analyze branches
@@ -1100,7 +1136,7 @@ impl SemanticAnalyzer {
 
             // === Data Structures ===
             AstNode::List(elements) => {
-                let elem_types: Vec<Type> = elements.iter()
+                let _elem_types: Vec<Type> = elements.iter()
                     .map(|elem| self.analyze_node(elem))
                     .collect();
 

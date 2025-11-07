@@ -21,8 +21,8 @@
 /// bind y to x            # y :: β, constraint: β = α
 /// # Solution: α = β = Number
 /// ```
-
-use std::fmt;
+use core::fmt;
+use alloc::string::{String, ToString};
 
 /// Type variable representing an unknown type
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

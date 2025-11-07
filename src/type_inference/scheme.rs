@@ -20,9 +20,9 @@
 /// bind a to identity(42)        # T = Number
 /// bind b to identity("hello")   # T = Text (fresh instantiation)
 /// ```
-
 use crate::type_inference::{InferType, TypeVar};
-use std::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
 
 /// Type scheme with universal quantification
 ///
@@ -133,8 +133,8 @@ impl TypeScheme {
     }
 }
 
-impl std::fmt::Display for TypeScheme {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for TypeScheme {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.quantified.is_empty() {
             write!(f, "{}", self.body)
         } else {

@@ -44,7 +44,7 @@ impl Lexer {
     /// Create a new lexer for the given source code
     pub fn new(input: &str) -> Self {
         let chars: Vec<char> = input.chars().collect();
-        let current_char = chars.get(0).copied();
+        let current_char = chars.first().copied();
         Lexer {
             input: chars,
             position: 0,
@@ -156,7 +156,7 @@ impl Lexer {
         }
 
         // Check for decimal point
-        if self.current_char == Some('.') && self.peek().map_or(false, |c| c.is_ascii_digit()) {
+        if self.current_char == Some('.') && self.peek().is_some_and(|c| c.is_ascii_digit()) {
             num_str.push('.');
             self.advance();
 
@@ -524,7 +524,7 @@ impl Lexer {
                 Token::Question
             }
 
-            Some(c) => {
+            Some(_c) => {
                 // Unknown character - skip it and try next
                 self.advance();
                 self.next_token()

@@ -31,10 +31,10 @@
 /// harmonize(α → β, Number → Text) → {α ↦ Number, β ↦ Text}
 /// harmonize(List<α>, List<Number>) → {α ↦ Number}
 /// ```
-
 use crate::type_inference::{InferType, TypeVar, TypeError};
 use crate::type_inference::requirement::SourceLocation;
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
+use alloc::boxed::Box;
 
 /// Harmonizer manages type unification and substitutions
 pub struct Harmonizer {
@@ -100,8 +100,8 @@ impl Harmonizer {
 
             // Type mismatch
             _ => Err(TypeError::Mismatch {
-                expected: lhs,
-                got: rhs,
+                expected: Box::new(lhs),
+                got: Box::new(rhs),
                 location: location.clone(),
             }),
         }
@@ -118,7 +118,7 @@ impl Harmonizer {
         if self.contains(&ty, &var) {
             return Err(TypeError::InfiniteType {
                 var,
-                ty,
+                ty: Box::new(ty),
                 location: location.clone(),
             });
         }

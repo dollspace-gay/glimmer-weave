@@ -32,7 +32,6 @@
 //! └─────────────────┘
 //! ```
 
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 /// ELF file class
@@ -292,6 +291,12 @@ pub struct StringTable {
     strings: Vec<u8>,
 }
 
+impl Default for StringTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StringTable {
     /// Create a new string table
     pub fn new() -> Self {
@@ -319,6 +324,11 @@ impl StringTable {
     pub fn len(&self) -> usize {
         self.strings.len()
     }
+
+    /// Check if the string table is empty
+    pub fn is_empty(&self) -> bool {
+        self.strings.is_empty()
+    }
 }
 
 /// ELF object file builder
@@ -330,11 +340,17 @@ pub struct ElfBuilder {
     shstring_table: StringTable,
 }
 
+impl Default for ElfBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ElfBuilder {
     /// Create a new ELF builder
     pub fn new() -> Self {
-        let mut symbols = Vec::new();
-        symbols.push(Elf64Symbol::null());  // First symbol is always null
+        // First symbol is always null
+        let symbols = vec![Elf64Symbol::null()];
 
         ElfBuilder {
             text_section: Vec::new(),
@@ -370,7 +386,7 @@ impl ElfBuilder {
         let mut header = Elf64Header::new_relocatable();
 
         // Build section name string table
-        let null_name = self.shstring_table.add("");
+        let _null_name = self.shstring_table.add("");
         let text_name = self.shstring_table.add(".text");
         let data_name = self.shstring_table.add(".data");
         let bss_name = self.shstring_table.add(".bss");

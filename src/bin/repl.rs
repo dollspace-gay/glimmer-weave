@@ -1,6 +1,5 @@
 /// Glimmer-Weave REPL (Read-Eval-Print Loop)
 /// Interactive shell for rapid prototyping and testing code snippets
-
 use glimmer_weave::{Evaluator, Lexer, Parser};
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result};
@@ -55,7 +54,7 @@ fn format_value(value: &glimmer_weave::eval::Value) -> String {
         Value::Truth(b) => format!("{}", b),
         Value::Nothing => "nothing".to_string(),
         Value::List(items) => {
-            let formatted: Vec<String> = items.iter().map(|v| format_value(v)).collect();
+            let formatted: Vec<String> = items.iter().map(format_value).collect();
             format!("[{}]", formatted.join(", "))
         }
         Value::Map(map) => {
@@ -96,7 +95,7 @@ fn format_value(value: &glimmer_weave::eval::Value) -> String {
             if fields.is_empty() {
                 variant_name.clone()
             } else {
-                let formatted: Vec<String> = fields.iter().map(|v| format_value(v)).collect();
+                let formatted: Vec<String> = fields.iter().map(format_value).collect();
                 format!("{}({})", variant_name, formatted.join(", "))
             }
         }
@@ -143,7 +142,7 @@ fn main() -> Result<()> {
         let prompt = if input_buffer.is_empty() {
             format!("glimmer[{}]> ", line_number)
         } else {
-            format!("       ...> ")
+            "       ...> ".to_string()
         };
 
         // Read line

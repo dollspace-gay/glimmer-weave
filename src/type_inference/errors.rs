@@ -10,25 +10,25 @@
 /// - Explain what went wrong clearly
 /// - Suggest how to fix it when possible
 /// - Show relevant source context
-
 use crate::type_inference::{InferType, TypeVar};
 use crate::type_inference::requirement::SourceLocation;
-use std::fmt;
+use core::fmt;
+use alloc::string::String;
 
 /// Type errors that can occur during inference
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeError {
     /// Types don't match
     Mismatch {
-        expected: InferType,
-        got: InferType,
+        expected: Box<InferType>,
+        got: Box<InferType>,
         location: SourceLocation,
     },
 
     /// Infinite type (occurs check failure)
     InfiniteType {
         var: TypeVar,
-        ty: InferType,
+        ty: Box<InferType>,
         location: SourceLocation,
     },
 
@@ -147,6 +147,8 @@ impl fmt::Display for TypeError {
     }
 }
 
+// Error trait is only available in std (core::error::Error requires nightly)
+#[cfg(feature = "std")]
 impl std::error::Error for TypeError {}
 
 #[cfg(test)]
@@ -157,8 +159,8 @@ mod tests {
     #[test]
     fn test_mismatch_error() {
         let error = TypeError::Mismatch {
-            expected: InferType::Concrete(Type::Number),
-            got: InferType::Concrete(Type::Text),
+            expected: Box::new(InferType::Concrete(Type::Number)),
+            got: Box::new(InferType::Concrete(Type::Text)),
             location: SourceLocation::new(5, 10),
         };
 
@@ -174,10 +176,10 @@ mod tests {
         let alpha = TypeVar::fresh(0);
         let error = TypeError::InfiniteType {
             var: alpha.clone(),
-            ty: InferType::arrow(
+            ty: Box::new(InferType::arrow(
                 InferType::Var(alpha),
                 InferType::Concrete(Type::Number),
-            ),
+            )),
             location: SourceLocation::new(8, 5),
         };
 
@@ -217,8 +219,8 @@ mod tests {
     #[test]
     fn test_error_location() {
         let error = TypeError::Mismatch {
-            expected: InferType::Concrete(Type::Number),
-            got: InferType::Concrete(Type::Text),
+            expected: Box::new(InferType::Concrete(Type::Number)),
+            got: Box::new(InferType::Concrete(Type::Text)),
             location: SourceLocation::new(5, 10),
         };
 

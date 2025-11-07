@@ -18,8 +18,9 @@
 /// - β = α (from binding)
 ///
 /// Solution: α = β = Number
-
 use crate::type_inference::InferType;
+use alloc::vec::Vec;
+use core::fmt;
 
 /// Location in source code for error reporting
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,8 +39,8 @@ impl SourceLocation {
     }
 }
 
-impl std::fmt::Display for SourceLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "line {}, column {}", self.line, self.column)
     }
 }

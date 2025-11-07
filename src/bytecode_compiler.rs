@@ -15,7 +15,7 @@
 //! 3. Generate type-aware instructions
 //! 4. Optimize simple patterns (constant folding, etc.)
 
-use crate::ast::{AstNode, BinaryOperator, UnaryOperator, Parameter};
+use crate::ast::{AstNode, BinaryOperator, UnaryOperator};
 use crate::bytecode::{BytecodeChunk, Constant, Instruction, Register, ConstantId};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -37,17 +37,27 @@ pub enum CompileError {
 pub type CompileResult<T> = Result<T, CompileError>;
 
 /// Variable location
+///
+/// FUTURE: Global variant will be used for module-level variables and
+/// cross-module imports when the module system is implemented.
 #[derive(Debug, Clone)]
 enum VarLocation {
     /// Local variable at stack index
     Local(u8),
     /// Global variable by name
+    #[allow(dead_code)]
     Global(String),
     /// Function at bytecode offset
     Function(usize),
 }
 
 /// Compilation scope
+///
+/// FUTURE: The `depth` field will be used for:
+/// - Error messages showing scope nesting level
+/// - Debugging and compiler introspection
+/// - Optimization decisions based on scope depth
+#[allow(dead_code)]
 struct Scope {
     /// Variables defined in this scope
     variables: BTreeMap<String, VarLocation>,
@@ -994,7 +1004,7 @@ impl BytecodeCompiler {
 
     /// Allocate a register
     fn alloc_register(&mut self) -> CompileResult<Register> {
-        if self.next_register >= 255 {
+        if self.next_register == 255 {
             return Err(CompileError::TooManyRegisters);
         }
 
@@ -1027,6 +1037,10 @@ impl BytecodeCompiler {
     }
 
     /// Get current scope
+    ///
+    /// FUTURE: Useful for debugging, error reporting, and implementing
+    /// scope-aware introspection features (e.g., listing local variables).
+    #[allow(dead_code)]
     fn current_scope(&self) -> &Scope {
         self.scopes.last().expect("No scope available")
     }

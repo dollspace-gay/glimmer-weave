@@ -38,17 +38,23 @@
 //! - [`eval`]: Evaluator/interpreter for executing AST
 //! - [`codegen`]: Code generator for compiling to x86-64 assembly
 
-// TODO(no_std): Re-enable no_std support when glimmer_weave is integrated into kernel
-// For now, use std to allow tests to run
-// #![cfg_attr(not(test), no_std)]
+// Declare as no_std by default, but allow std feature to enable standard library
+#![cfg_attr(not(feature = "std"), no_std)]
 
-// When not using no_std, we need to provide alloc items via std
-#[cfg(not(no_std))]
+// When std feature is enabled, provide alloc via std
+// Import macros (format!, vec!) from alloc
+#[cfg(feature = "std")]
+#[macro_use]
 extern crate std as alloc;
 
-// When using no_std, use the real alloc crate
-#[cfg(no_std)]
+// When std feature is disabled, use the real alloc crate for heap allocations
+// Import macros (format!, vec!) from alloc
+#[cfg(not(feature = "std"))]
+#[macro_use]
 extern crate alloc;
+
+// Prelude module with common alloc types for no_std compatibility
+mod prelude;
 
 pub mod token;
 pub mod lexer;

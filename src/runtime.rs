@@ -16,45 +16,45 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::vec;
 use alloc::format;
+use alloc::boxed::Box;
 use crate::eval::{Value, RuntimeError};
 
 /// Math functions abstraction - use std when available (tests), libm when no_std
 mod math {
-    // Use libm when the feature is enabled
-    #[cfg(feature = "use_libm")]
-    pub use libm::{sqrt, pow, floor, ceil, round, sin, cos, tan, log, exp};
-
     // Use std math functions when std is available (includes tests)
-    // This is the default when use_libm feature is not enabled
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn sqrt(x: f64) -> f64 { x.sqrt() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn pow(x: f64, y: f64) -> f64 { x.powf(y) }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn floor(x: f64) -> f64 { x.floor() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn ceil(x: f64) -> f64 { x.ceil() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn round(x: f64) -> f64 { x.round() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn sin(x: f64) -> f64 { x.sin() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn cos(x: f64) -> f64 { x.cos() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn tan(x: f64) -> f64 { x.tan() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn log(x: f64) -> f64 { x.ln() }
 
-    #[cfg(not(feature = "use_libm"))]
+    #[cfg(feature = "std")]
     pub fn exp(x: f64) -> f64 { x.exp() }
+
+    // Use libm when std is not available (no_std mode)
+    #[cfg(not(feature = "std"))]
+    pub use libm::{sqrt, pow, floor, ceil, round, sin, cos, tan, log, exp};
 }
 
 /// Type signature for native function implementations
@@ -431,7 +431,7 @@ fn string_char_at(args: &[Value]) -> Result<Value, RuntimeError> {
                     length: s.len(),
                 });
             }
-            let ch = s.chars().nth(index).ok_or_else(|| RuntimeError::IndexOutOfBounds {
+            let ch = s.chars().nth(index).ok_or(RuntimeError::IndexOutOfBounds {
                 index,
                 length: s.len(),
             })?;
@@ -1147,7 +1147,7 @@ fn to_text(args: &[Value]) -> Result<Value, RuntimeError> {
             // Format as StructName { field1: value1, field2: value2 }
             let mut field_strings = Vec::new();
             for (k, v) in fields.iter() {
-                let v_text = to_text(&[v.clone()])?;
+                let v_text = to_text(core::slice::from_ref(v))?;
                 if let Value::Text(s) = v_text {
                     field_strings.push(format!("{}: {}", k, s));
                 } else {
@@ -1168,7 +1168,7 @@ fn to_text(args: &[Value]) -> Result<Value, RuntimeError> {
                 // Phase 2: Format fields
                 let mut field_strings = Vec::new();
                 for v in fields.iter() {
-                    let v_text = to_text(&[v.clone()])?;
+                    let v_text = to_text(core::slice::from_ref(v))?;
                     if let Value::Text(s) = v_text {
                         field_strings.push(s);
                     } else {
@@ -1295,11 +1295,11 @@ fn triumph_or_else(args: &[Value]) -> Result<Value, RuntimeError> {
         Value::Outcome { success: false, .. } => {
             // Call the function with no arguments
             match &args[1] {
-                Value::Chant { params, body, closure: _ } => {
-                    if !params.is_empty() {
+                Value::Chant { params: _params, body: _body, closure: _ } => {
+                    if !_params.is_empty() {
                         return Err(RuntimeError::ArityMismatch {
                             expected: 0,
-                            got: params.len(),
+                            got: _params.len(),
                         });
                     }
                     // We need to create an evaluator to call the function
@@ -1342,7 +1342,7 @@ fn expect_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
 /// Transform triumph value (map operation)
 fn refine_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
     match &args[0] {
-        Value::Outcome { success: true, value } => {
+        Value::Outcome { success: true, value: _value } => {
             // Need to apply function to value
             // For now, return error as we need evaluator context
             Err(RuntimeError::Custom(
@@ -1366,7 +1366,7 @@ fn refine_triumph(args: &[Value]) -> Result<Value, RuntimeError> {
 /// Transform mishap value
 fn refine_mishap(args: &[Value]) -> Result<Value, RuntimeError> {
     match &args[0] {
-        Value::Outcome { success: false, value } => {
+        Value::Outcome { success: false, value: _value } => {
             // Need to apply function to error value
             Err(RuntimeError::Custom(
                 "refine_mishap: Function execution not yet supported from native code".to_string()
@@ -1772,7 +1772,7 @@ fn refine_variant(args: &[Value]) -> Result<Value, RuntimeError> {
                 
                 // Call the function with the fields
                 match transform_fn {
-                    Value::Chant { params, body, closure } => {
+                    Value::Chant { params: _params, body: _body, closure: _closure } => {
                         // For simplicity, we'll just return Present with the fields
                         // In a full implementation, we'd evaluate the function
                         Ok(Value::Maybe {
@@ -1980,7 +1980,7 @@ fn iter_filter(args: &[Value]) -> Result<Value, RuntimeError> {
 }
 
 /// Fold an iterator into a single value
-fn iter_fold(args: &[Value]) -> Result<Value, RuntimeError> {
+fn iter_fold(_args: &[Value]) -> Result<Value, RuntimeError> {
     // Note: This function signature is (iterator, init, func)
     // The actual reduction logic needs to be implemented in the evaluator
     // because it requires calling functions dynamically
@@ -1990,7 +1990,7 @@ fn iter_fold(args: &[Value]) -> Result<Value, RuntimeError> {
 }
 
 /// Collect an iterator into a list
-fn iter_collect(args: &[Value]) -> Result<Value, RuntimeError> {
+fn iter_collect(_args: &[Value]) -> Result<Value, RuntimeError> {
     // Note: This needs to be implemented in Glimmer-Weave code
     // because it requires repeatedly calling iter_next
     Err(RuntimeError::Custom(

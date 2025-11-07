@@ -18,7 +18,7 @@
 //!
 //! Most instructions use register operands (r0-r255).
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 /// Virtual register index (0-255)

@@ -65,6 +65,12 @@ pub struct Monomorphizer {
     generic_functions: BTreeMap<String, AstNode>,
 }
 
+impl Default for Monomorphizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Monomorphizer {
     pub fn new() -> Self {
         Monomorphizer {
@@ -216,26 +222,34 @@ impl Monomorphizer {
 
     /// Convert TypeAnnotation to String for instantiation tracking
     fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
-        match ann {
-            TypeAnnotation::Named(name) => name.clone(),
-            TypeAnnotation::Generic(name) => name.clone(),
-            TypeAnnotation::List(inner) => {
-                format!("List_{}", self.type_annotation_to_string(inner))
-            }
-            TypeAnnotation::Parametrized { name, type_args } => {
-                let args: Vec<String> = type_args
-                    .iter()
-                    .map(|arg| self.type_annotation_to_string(arg))
-                    .collect();
-                format!("{}_{}", name, args.join("_"))
-            }
-            TypeAnnotation::Map => "Map".to_string(),
-            TypeAnnotation::Function { .. } => "Function".to_string(),
-            TypeAnnotation::Optional(inner) => {
-                format!("Optional_{}", self.type_annotation_to_string(inner))
-            }
+        monomorphize_type_annotation_to_string(ann)
+    }
+}
+
+/// Convert TypeAnnotation to String for instantiation tracking (standalone helper)
+fn monomorphize_type_annotation_to_string(ann: &TypeAnnotation) -> String {
+    match ann {
+        TypeAnnotation::Named(name) => name.clone(),
+        TypeAnnotation::Generic(name) => name.clone(),
+        TypeAnnotation::List(inner) => {
+            format!("List_{}", monomorphize_type_annotation_to_string(inner))
+        }
+        TypeAnnotation::Parametrized { name, type_args } => {
+            let args: Vec<String> = type_args
+                .iter()
+                .map(monomorphize_type_annotation_to_string)
+                .collect();
+            format!("{}_{}", name, args.join("_"))
+        }
+        TypeAnnotation::Map => "Map".to_string(),
+        TypeAnnotation::Function { .. } => "Function".to_string(),
+        TypeAnnotation::Optional(inner) => {
+            format!("Optional_{}", monomorphize_type_annotation_to_string(inner))
         }
     }
+}
+
+impl Monomorphizer {
 
     /// Generate specialized function definitions
     fn generate_specialized_functions(&self) -> Vec<AstNode> {
@@ -310,43 +324,54 @@ impl Monomorphizer {
         ann: &TypeAnnotation,
         substitutions: &BTreeMap<String, String>,
     ) -> TypeAnnotation {
-        match ann {
-            TypeAnnotation::Generic(name) => {
-                // Replace type parameter with concrete type
-                if let Some(concrete) = substitutions.get(name) {
-                    TypeAnnotation::Named(concrete.clone())
-                } else {
-                    ann.clone()
-                }
-            }
-            TypeAnnotation::List(inner) => {
-                TypeAnnotation::List(Box::new(self.substitute_type_annotation(inner, substitutions)))
-            }
-            TypeAnnotation::Parametrized { name, type_args } => {
-                TypeAnnotation::Parametrized {
-                    name: name.clone(),
-                    type_args: type_args
-                        .iter()
-                        .map(|arg| self.substitute_type_annotation(arg, substitutions))
-                        .collect(),
-                }
-            }
-            TypeAnnotation::Function { param_types, return_type } => {
-                TypeAnnotation::Function {
-                    param_types: param_types
-                        .iter()
-                        .map(|pt| self.substitute_type_annotation(pt, substitutions))
-                        .collect(),
-                    return_type: Box::new(self.substitute_type_annotation(return_type, substitutions)),
-                }
-            }
-            TypeAnnotation::Optional(inner) => {
-                TypeAnnotation::Optional(Box::new(self.substitute_type_annotation(inner, substitutions)))
-            }
-            // Named, Map don't need substitution
-            _ => ann.clone(),
-        }
+        substitute_type_annotation_helper(ann, substitutions)
     }
+}
+
+/// Substitute type parameters in a type annotation (standalone helper)
+fn substitute_type_annotation_helper(
+    ann: &TypeAnnotation,
+    substitutions: &BTreeMap<String, String>,
+) -> TypeAnnotation {
+    match ann {
+        TypeAnnotation::Generic(name) => {
+            // Replace type parameter with concrete type
+            if let Some(concrete) = substitutions.get(name) {
+                TypeAnnotation::Named(concrete.clone())
+            } else {
+                ann.clone()
+            }
+        }
+        TypeAnnotation::List(inner) => {
+            TypeAnnotation::List(Box::new(substitute_type_annotation_helper(inner, substitutions)))
+        }
+        TypeAnnotation::Parametrized { name, type_args } => {
+            TypeAnnotation::Parametrized {
+                name: name.clone(),
+                type_args: type_args
+                    .iter()
+                    .map(|arg| substitute_type_annotation_helper(arg, substitutions))
+                    .collect(),
+            }
+        }
+        TypeAnnotation::Function { param_types, return_type } => {
+            TypeAnnotation::Function {
+                param_types: param_types
+                    .iter()
+                    .map(|pt| substitute_type_annotation_helper(pt, substitutions))
+                    .collect(),
+                return_type: Box::new(substitute_type_annotation_helper(return_type, substitutions)),
+            }
+        }
+        TypeAnnotation::Optional(inner) => {
+            TypeAnnotation::Optional(Box::new(substitute_type_annotation_helper(inner, substitutions)))
+        }
+        // Named, Map don't need substitution
+        _ => ann.clone(),
+    }
+}
+
+impl Monomorphizer {
 
     /// Transform a node, replacing generic calls with calls to specialized versions
     fn transform_node(&self, node: &AstNode) -> AstNode {

@@ -15,6 +15,7 @@ use crate::eval::Value;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
+use alloc::boxed::Box;
 
 /// VM runtime error
 #[derive(Debug, Clone)]
@@ -43,6 +44,13 @@ pub enum VmError {
 pub type VmResult<T> = Result<T, VmError>;
 
 /// Call frame for function calls
+///
+/// FUTURE: These fields will be essential for:
+/// - Stack traces showing function call chains
+/// - Debugging support (backtrace, step through calls)
+/// - Exception handling with proper unwinding
+/// - Profiling and performance analysis
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct CallFrame {
     /// Return address (instruction pointer)
@@ -67,6 +75,10 @@ pub struct VM {
     globals: BTreeMap<String, Value>,
 
     /// Call stack
+    ///
+    /// FUTURE: Will be used for generating stack traces, debugging,
+    /// and proper function call/return handling in complex scenarios.
+    #[allow(dead_code)]
     call_stack: Vec<CallFrame>,
 
     /// Exception handler stack
@@ -77,6 +89,12 @@ pub struct VM {
 
     /// Current chunk being executed
     chunk: Option<BytecodeChunk>,
+}
+
+impl Default for VM {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VM {
@@ -343,10 +361,10 @@ impl VM {
                     }
                 }
 
-                Instruction::Print { src } => {
+                Instruction::Print { src: _src } => {
                     // Debug instruction
                     #[cfg(test)]
-                    println!("VM PRINT: {:?}", self.registers[src as usize]);
+                    println!("VM PRINT: {:?}", self.registers[_src as usize]);
                 }
 
                 // Enum/Variant instructions

@@ -163,12 +163,12 @@ impl Value {
             Value::Range { .. } => "Range",
             Value::Outcome { success, .. } => if *success { "Triumph" } else { "Mishap" },
             Value::Maybe { present, .. } => if *present { "Present" } else { "Absent" },
-            Value::StructDef { name, .. } => return name.as_str(),
-            Value::StructInstance { struct_name, .. } => return struct_name.as_str(),
-            Value::VariantDef { name, .. } => return name.as_str(),
-            Value::VariantValue { variant_name, .. } => return variant_name.as_str(),
-            Value::VariantConstructor { variant_name, .. } => return variant_name.as_str(),
-            Value::Iterator { iterator_type, .. } => return iterator_type.as_str(),
+            Value::StructDef { name, .. } => name.as_str(),
+            Value::StructInstance { struct_name, .. } => struct_name.as_str(),
+            Value::VariantDef { name, .. } => name.as_str(),
+            Value::VariantValue { variant_name, .. } => variant_name.as_str(),
+            Value::VariantConstructor { variant_name, .. } => variant_name.as_str(),
+            Value::Iterator { iterator_type, .. } => iterator_type.as_str(),
         }
     }
 }
@@ -312,6 +312,12 @@ pub struct Environment {
     scopes: Vec<BTreeMap<String, Binding>>,
 }
 
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Environment {
     /// Create a new environment with one empty scope
     pub fn new() -> Self {
@@ -372,6 +378,11 @@ impl Environment {
 }
 
 /// Trait definition information (runtime copy)
+///
+/// FUTURE: These fields will be used when the trait system is fully implemented.
+/// Traits provide Rust-like interfaces with type parameters and method requirements.
+/// Currently stored but not actively used for method dispatch.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TraitDefinition {
     name: String,
@@ -387,6 +398,11 @@ struct TraitImplKey {
 }
 
 /// Trait implementation information (runtime)
+///
+/// FUTURE: Will be used for dynamic dispatch when traits are fully integrated.
+/// Allows checking if a type implements a trait and calling trait methods.
+/// Currently stored but not used for method resolution.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TraitImplementation {
     aspect_name: String,
@@ -403,6 +419,12 @@ pub struct Evaluator {
     trait_definitions: BTreeMap<String, TraitDefinition>,
     /// Trait implementations (embody statements)
     trait_implementations: BTreeMap<TraitImplKey, TraitImplementation>,
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Evaluator {
@@ -522,7 +544,7 @@ impl Evaluator {
         match func {
             Value::Chant { params, body, closure: _ } => {
                 // Check if function has variadic parameters
-                let has_variadic = params.last().map_or(false, |p| p.is_variadic);
+                let has_variadic = params.last().is_some_and(|p| p.is_variadic);
                 let required_params = if has_variadic { params.len() - 1 } else { params.len() };
 
                 // Arity check
@@ -627,15 +649,14 @@ impl Evaluator {
                 }
 
                 // Phase 3: Check type argument count for generic enums
-                if !type_params.is_empty() && !type_arg_names.is_empty() {
-                    if type_params.len() != type_arg_names.len() {
+                if !type_params.is_empty() && !type_arg_names.is_empty()
+                    && type_params.len() != type_arg_names.len() {
                         return Err(RuntimeError::Custom(format!(
                             "Type argument mismatch: expected {} type arguments, got {}",
                             type_params.len(),
                             type_arg_names.len()
                         )));
                     }
-                }
 
                 // Create the variant value with the arguments as fields
                 Ok(Value::VariantValue {
@@ -1265,8 +1286,6 @@ impl Evaluator {
 
             // === Pattern Matching ===
             AstNode::MatchStmt { value, arms } => {
-                use crate::ast::Pattern;
-
                 // Evaluate the value to match against
                 let match_value = self.eval_node(value)?;
 
@@ -1639,26 +1658,34 @@ impl Evaluator {
 
     /// Convert TypeAnnotation to normalized string for trait impl lookup
     fn type_annotation_to_string(&self, ann: &TypeAnnotation) -> String {
-        match ann {
-            TypeAnnotation::Named(name) => name.clone(),
-            TypeAnnotation::Generic(name) => name.clone(),
-            TypeAnnotation::List(inner) => {
-                alloc::format!("List<{}>", self.type_annotation_to_string(inner))
-            }
-            TypeAnnotation::Parametrized { name, type_args } => {
-                let args: Vec<String> = type_args
-                    .iter()
-                    .map(|arg| self.type_annotation_to_string(arg))
-                    .collect();
-                alloc::format!("{}<{}>", name, args.join(", "))
-            }
-            TypeAnnotation::Map => "Map".to_string(),
-            TypeAnnotation::Function { .. } => "Function".to_string(),
-            TypeAnnotation::Optional(inner) => {
-                alloc::format!("{}?", self.type_annotation_to_string(inner))
-            }
+        type_annotation_to_string_helper(ann)
+    }
+}
+
+/// Convert TypeAnnotation to normalized string for trait impl lookup (standalone helper)
+fn type_annotation_to_string_helper(ann: &TypeAnnotation) -> String {
+    match ann {
+        TypeAnnotation::Named(name) => name.clone(),
+        TypeAnnotation::Generic(name) => name.clone(),
+        TypeAnnotation::List(inner) => {
+            alloc::format!("List<{}>", type_annotation_to_string_helper(inner))
+        }
+        TypeAnnotation::Parametrized { name, type_args } => {
+            let args: Vec<String> = type_args
+                .iter()
+                .map(type_annotation_to_string_helper)
+                .collect();
+            alloc::format!("{}<{}>", name, args.join(", "))
+        }
+        TypeAnnotation::Map => "Map".to_string(),
+        TypeAnnotation::Function { .. } => "Function".to_string(),
+        TypeAnnotation::Optional(inner) => {
+            alloc::format!("{}?", type_annotation_to_string_helper(inner))
         }
     }
+}
+
+impl Evaluator {
 
     /// Get the type name of a runtime value for trait lookup
     fn value_type_string(&self, value: &Value) -> String {

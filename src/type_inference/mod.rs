@@ -29,15 +29,15 @@
 /// ```rust,no_run
 /// use glimmer_weave::type_inference::TypeInference;
 /// use glimmer_weave::ast::AstNode;
+/// use glimmer_weave::type_inference::TypeError;
 ///
-/// fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// fn example() -> Result<(), TypeError> {
 ///     let mut inference = TypeInference::new();
 ///     let ast = vec![AstNode::Number(42.0)];
 ///     let typed_ast = inference.infer_types(&ast)?;
 ///     Ok(())
 /// }
 /// ```
-
 pub mod type_var;
 pub mod infer_type;
 pub mod requirement;
@@ -55,7 +55,9 @@ pub use scheme::TypeScheme;
 pub use errors::TypeError;
 
 use crate::ast::AstNode;
-use std::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Main type inference engine
 ///
@@ -64,6 +66,11 @@ use std::collections::BTreeMap;
 /// 2. Harmonization (unification) to solve constraints
 /// 3. Abstraction (generalization) for let-polymorphism
 /// 4. Materialize final types
+///
+/// FUTURE: The `env` field will be used when type inference is integrated
+/// into the main evaluation pipeline, enabling full Hindley-Milner type
+/// inference with let-polymorphism and type variable resolution.
+#[allow(dead_code)]
 pub struct TypeInference {
     /// Next available type variable ID
     next_var: usize,
@@ -98,8 +105,8 @@ impl TypeEnvironment {
     }
 
     /// Get all free type variables in the environment
-    pub fn free_vars(&self) -> std::collections::BTreeSet<TypeVar> {
-        let mut vars = std::collections::BTreeSet::new();
+    pub fn free_vars(&self) -> BTreeSet<TypeVar> {
+        let mut vars = BTreeSet::new();
         for scheme in self.bindings.values() {
             vars.extend(scheme.free_vars());
         }

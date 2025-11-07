@@ -210,6 +210,12 @@ pub struct CodeGen {
     function_entry_label: Option<String>,
 }
 
+impl Default for CodeGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodeGen {
     /// Create a new code generator
     pub fn new() -> Self {
@@ -224,6 +230,10 @@ impl CodeGen {
     }
 
     /// Generate a unique label
+    ///
+    /// FUTURE: Will be needed for complex control flow (switch statements,
+    /// loop break/continue with nested loops, exception handling jumps).
+    #[allow(dead_code)]
     fn gen_label(&mut self, prefix: &str) -> String {
         let label = format!(".L{}_{}", prefix, self.label_counter);
         self.label_counter += 1;
@@ -604,7 +614,7 @@ impl CodeGen {
 
                 // Allocate parameters on stack
                 // Args come in rdi, rsi, rdx, rcx, r8, r9 (System V ABI)
-                let arg_regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                 for (i, param) in params.iter().enumerate() {
                     if i < arg_regs.len() {
                         let offset = self.alloc_var(param.name.clone());
@@ -651,7 +661,7 @@ impl CodeGen {
                         if Some(func_name) == self.current_function.as_ref() {
                             // This is a tail call! Use TCO.
                             // Evaluate arguments
-                            let arg_regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                            let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                             for (i, arg) in args.iter().enumerate() {
                                 if i < arg_regs.len() {
                                     // Evaluate arg into rax
@@ -969,7 +979,7 @@ impl CodeGen {
                             Register::Rax.name().to_string()
                         ));
                         let label_true = format!(".L_or_true_{}", self.label_counter);
-                        let label_check_right = format!(".L_or_check_right_{}", self.label_counter);
+                        let _label_check_right = format!(".L_or_check_right_{}", self.label_counter);
                         let label_end = format!(".L_or_end_{}", self.label_counter);
                         self.label_counter += 1;
 
@@ -1029,7 +1039,7 @@ impl CodeGen {
             AstNode::Call { callee, args, .. } => {
                 // Function call with System V ABI
                 // Arguments in: rdi, rsi, rdx, rcx, r8, r9
-                let arg_regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
                 // Evaluate arguments and move to argument registers
                 for (i, arg) in args.iter().enumerate() {
@@ -1196,7 +1206,7 @@ impl CodeGen {
                 self.emit(Instruction::Comment("This feature is fully supported in interpreter and bytecode VM".to_string()));
 
                 // For now, return error
-                Err(format!("Struct literals not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead."))
+                Err("Struct literals not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead.".to_string())
             }
 
             AstNode::FieldAccess { object, field } => {
@@ -1207,7 +1217,7 @@ impl CodeGen {
 
                 // For now, try to compile the object expression but return error
                 self.gen_expr(object)?;
-                Err(format!("Struct field access not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead."))
+                Err("Struct field access not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead.".to_string())
             }
 
             _ => Err(format!("Expression codegen not implemented: {:?}", node))

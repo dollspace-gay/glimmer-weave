@@ -25,12 +25,13 @@
 /// - Requirement: α = Number
 /// - y :: β
 /// - Requirement: β = α
-
 use crate::ast::AstNode;
 use crate::type_inference::{InferType, TypeVar, RequirementSet, TypeScheme};
 use crate::type_inference::requirement::SourceLocation;
 use crate::semantic::Type;
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 /// Constraint generator
 pub struct ConstraintGenerator {

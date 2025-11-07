@@ -38,6 +38,10 @@ impl Parser {
     }
 
     /// Peek at next token
+    ///
+    /// FUTURE: Will be needed for lookahead parsing of complex expressions
+    /// and disambiguation of ambiguous syntax (e.g., generics vs comparison).
+    #[allow(dead_code)]
     fn peek(&self) -> &Token {
         self.tokens.get(self.position + 1).unwrap_or(&Token::Eof)
     }
@@ -1620,11 +1624,8 @@ impl Parser {
         let mut conditions = Vec::new();
 
         // Parse conditions
-        loop {
-            let field = match self.current() {
-                Token::Ident(f) => f.clone(),
-                _ => break,
-            };
+        while let Token::Ident(field) = self.current() {
+            let field = field.clone();
             self.advance();
 
             let operator = match self.current() {

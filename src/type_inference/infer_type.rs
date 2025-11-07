@@ -13,11 +13,13 @@
 /// - **Type Variables** - `Var(α)` represents unknowns
 /// - **Quantification** - `Forall` for polymorphic types (∀T. T → T)
 /// - **Convertible** - Can convert between `Type` and `InferType`
-
 use crate::semantic::Type;
 use crate::type_inference::TypeVar;
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::boxed::Box;
+use core::fmt;
 
 /// Type representation during inference
 #[derive(Debug, Clone, PartialEq, Eq)]

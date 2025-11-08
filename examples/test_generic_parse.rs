@@ -11,7 +11,7 @@ fn main() {
     "#;
     
     let mut lexer = Lexer::new(source1);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     match parser.parse() {
         Ok(ast) => println!("✓ Generic function parsed successfully: {} nodes", ast.len()),
@@ -26,7 +26,7 @@ fn main() {
     "#;
     
     let mut lexer = Lexer::new(source2);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     match parser.parse() {
         Ok(ast) => println!("✓ Generic struct parsed successfully: {} nodes", ast.len()),
@@ -39,7 +39,7 @@ fn main() {
     "#;
     
     let mut lexer = Lexer::new(source3);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     match parser.parse() {
         Ok(ast) => println!("✓ Generic function call parsed successfully: {} nodes", ast.len()),
@@ -52,7 +52,7 @@ fn main() {
     "#;
     
     let mut lexer = Lexer::new(source4);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     match parser.parse() {
         Ok(ast) => println!("✓ Generic struct instantiation parsed successfully: {} nodes", ast.len()),

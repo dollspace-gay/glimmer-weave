@@ -221,9 +221,9 @@ pub enum AstNode {
         span: SourceSpan,
     },
 
-    /// Mutation: `set counter to 10`
+    /// Mutation: `set counter to 10`, `set list[i] to 5`, `set obj.field to "value"`
     SetStmt {
-        name: String,
+        target: Box<AstNode>,  // Can be Ident, Index, or FieldAccess
         value: Box<AstNode>,
         span: SourceSpan,
     },
@@ -443,6 +443,14 @@ pub enum AstNode {
     UnaryOp {
         op: UnaryOperator,
         operand: Box<AstNode>,
+        span: SourceSpan,
+    },
+
+    /// Borrow expression: `borrow x`, `borrow mut y`
+    /// Creates a reference to a value
+    BorrowExpr {
+        value: Box<AstNode>,
+        mutable: bool,
         span: SourceSpan,
     },
 

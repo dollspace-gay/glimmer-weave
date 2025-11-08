@@ -3,39 +3,39 @@
 
 # Function returning a borrowed reference
 # The returned reference has the same lifetime as the input
-chant first<'span>(borrow 'span list as List<Number>) -> borrow 'span Number then
+chant get_first(borrow list as List<Number>) -> Number then
     yield borrow list[0]
 end
 
 # Function with multiple borrowed inputs
 # Both inputs must have the same lifetime
-chant longer<'span>(
-    borrow 'span first as Text,
-    borrow 'span second as Text
-) -> borrow 'span Text then
-    should first.length() > second.length() then
-        yield first
+chant longer(
+    borrow first_text as Text,
+    borrow second_text as Text
+) -> Text then
+    should first_text.length() greater than second_text.length() then
+        yield first_text
     otherwise
-        yield second
+        yield second_text
     end
 end
 
-# Example with struct containing borrowed data
-form Slice<'span> with
-    data: borrow 'span List<Number>
-    start: Number
-    end: Number
+# Example with struct containing data
+form Slice with
+    data as List<Number>
+    start as Number
+    finish as Number
 end
 
-chant make_slice<'span>(
-    borrow 'span list as List<Number>,
+chant make_slice(
+    borrow list as List<Number>,
     start as Number,
-    end as Number
-) -> Slice<'span> then
+    finish as Number
+) -> Slice then
     yield Slice {
-        data: borrow list,
+        data: list,
         start: start,
-        end: end
+        finish: finish
     }
 end
 
@@ -43,7 +43,7 @@ end
 bind numbers to [10, 20, 30, 40, 50]
 
 # first_num borrows from numbers
-bind first_num to first(borrow numbers)
+bind first_num to get_first(borrow numbers)
 VGA.write("First number: " + to_text(first_num))
 
 # Strings with explicit lifetime
@@ -54,10 +54,10 @@ VGA.write("Longer string: " + longer_str)
 
 # Slice borrowing from numbers
 bind slice to make_slice(borrow numbers, 1, 3)
-VGA.write("Slice from " + to_text(slice.start) + " to " + to_text(slice.end))
+VGA.write("Slice from " + to_text(slice.start) + " to " + to_text(slice.finish))
 
 # ERROR: Cannot return reference to local variable
-# chant bad_reference() -> borrow Number then
+# chant bad_reference() -> Number then
 #     bind local to 42
 #     yield borrow local  # ERROR: local doesn't live long enough
 # end

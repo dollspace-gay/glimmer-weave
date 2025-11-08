@@ -41,7 +41,7 @@ end
 
 # NEW: Use Maybe/Option for safety
 chant get_first_new(borrow data as List<Number>) -> Maybe<Number> then
-    should data.length() > 0 then
+    should data.length() greater than 0 then
         yield Present(data[0])
     otherwise
         yield Absent
@@ -74,8 +74,8 @@ add_item_new(borrow mut data, 6)  # In-place modification
 VGA.write("After adding: " + to_text(data))
 
 match get_first_new(borrow data) with
-    when Present(first) then
-        VGA.write("First element: " + to_text(first))
+    when Present(first_val) then
+        VGA.write("First element: " + to_text(first_val))
     when Absent then
         VGA.write("List is empty")
 end

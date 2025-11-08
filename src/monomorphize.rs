@@ -471,8 +471,8 @@ impl Monomorphizer {
                 span: span.clone(),
             },
 
-            AstNode::SetStmt { name, value, span } => AstNode::SetStmt {
-                name: name.clone(),
+            AstNode::SetStmt { target, value, span } => AstNode::SetStmt {
+                target: Box::new(self.transform_node(target)),
                 value: Box::new(self.transform_node(value)),
                 span: span.clone(),
             },

@@ -1,9 +1,0 @@
-chant sum(...nums) then
-    weave total as 0
-    for each n in nums then
-        set total to total + n
-    end
-    yield total
-end
-
-sum(1, 2, 3)

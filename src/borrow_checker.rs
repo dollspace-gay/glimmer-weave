@@ -143,36 +143,41 @@ impl BorrowChecker {
                 self.check_node(value);
                 self.variables.insert(name.clone(), VarState::Owned);
             }
-            AstNode::SetStmt { name, value, span } => {
-                // Check if variable is moved or borrowed
-                if let Some(state) = self.variables.get(name) {
-                    match state {
-                        VarState::Moved(moved_at) => {
-                            self.errors.push(BorrowError::UseAfterMove {
-                                variable: name.clone(),
-                                moved_at: moved_at.clone(),
-                                used_at: span.clone(),
-                            });
-                        }
-                        VarState::ImmutablyBorrowed(borrows) => {
-                            if let Some(borrow_at) = borrows.first() {
-                                self.errors.push(BorrowError::MutableBorrowConflict {
+            AstNode::SetStmt { target, value, span } => {
+                // Check the target - only check simple identifiers
+                if let AstNode::Ident { name, .. } = target.as_ref() {
+                    // Check if variable is moved or borrowed
+                    if let Some(state) = self.variables.get(name) {
+                        match state {
+                            VarState::Moved(moved_at) => {
+                                self.errors.push(BorrowError::UseAfterMove {
                                     variable: name.clone(),
-                                    immutable_borrow_at: borrow_at.clone(),
-                                    mutable_borrow_at: span.clone(),
+                                    moved_at: moved_at.clone(),
+                                    used_at: span.clone(),
                                 });
                             }
+                            VarState::ImmutablyBorrowed(borrows) => {
+                                if let Some(borrow_at) = borrows.first() {
+                                    self.errors.push(BorrowError::MutableBorrowConflict {
+                                        variable: name.clone(),
+                                        immutable_borrow_at: borrow_at.clone(),
+                                        mutable_borrow_at: span.clone(),
+                                    });
+                                }
+                            }
+                            VarState::MutablyBorrowed(borrow_at) => {
+                                self.errors.push(BorrowError::MultipleMutableBorrows {
+                                    variable: name.clone(),
+                                    first_borrow_at: borrow_at.clone(),
+                                    second_borrow_at: span.clone(),
+                                });
+                            }
+                            VarState::Owned => {}
                         }
-                        VarState::MutablyBorrowed(borrow_at) => {
-                            self.errors.push(BorrowError::MultipleMutableBorrows {
-                                variable: name.clone(),
-                                first_borrow_at: borrow_at.clone(),
-                                second_borrow_at: span.clone(),
-                            });
-                        }
-                        VarState::Owned => {}
                     }
                 }
+                // Check the target and value expressions
+                self.check_node(target);
                 self.check_node(value);
             }
             AstNode::Ident { name, span } => {

@@ -29,7 +29,7 @@ fn test_parse_simple_enum() {
     assert!(result.is_ok(), "Failed to parse simple enum: {:?}", result);
 
     match result.unwrap() {
-        AstNode::VariantDef { name, type_params, variants } => {
+        AstNode::VariantDef { name, type_params, variants, .. } => {
             assert_eq!(name, "Color");
             assert_eq!(type_params.len(), 0);
             assert_eq!(variants.len(), 3);
@@ -122,7 +122,7 @@ fn test_parse_generic_enum() {
     assert!(result.is_ok(), "Failed to parse generic enum: {:?}", result);
 
     match result.unwrap() {
-        AstNode::VariantDef { name, type_params, variants } => {
+        AstNode::VariantDef { name, type_params, variants, .. } => {
             assert_eq!(name, "Option");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0], "T");
@@ -155,7 +155,7 @@ fn test_parse_generic_enum_multiple_params() {
     assert!(result.is_ok(), "Failed to parse enum with multiple type params: {:?}", result);
 
     match result.unwrap() {
-        AstNode::VariantDef { name, type_params, variants } => {
+        AstNode::VariantDef { name, type_params, variants, .. } => {
             assert_eq!(name, "Result");
             assert_eq!(type_params.len(), 2);
             assert_eq!(type_params[0], "T");
@@ -234,7 +234,7 @@ fn test_parse_recursive_enum() {
     assert!(result.is_ok(), "Failed to parse recursive enum: {:?}", result);
 
     match result.unwrap() {
-        AstNode::VariantDef { name, type_params, variants } => {
+        AstNode::VariantDef { name, type_params, variants, .. } => {
             assert_eq!(name, "List");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0], "T");

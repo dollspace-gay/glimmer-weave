@@ -1,8 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(Select-Object -First 20)",
-      "Bash(test:*)"
+      "Bash(./debug_23.exe)",
+      "Bash(./debug_25.exe:*)",
+      "Bash(./debug_26.exe)",
+      "Bash(./debug_27.exe:*)",
+      "Bash(./debug_28.exe)",
+      "Bash(./debug_29.exe)",
+      "Bash(./debug_demo.exe:*)"
     ],
     "deny": [],
     "ask": []

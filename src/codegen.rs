@@ -324,7 +324,16 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::SetStmt { name, value, ..  } => {
+            AstNode::SetStmt { target, value, ..  } => {
+                // Only support simple variable assignment in codegen
+                // Index/field assignment requires heap allocation runtime
+                let name = match target.as_ref() {
+                    AstNode::Ident { name, .. } => name,
+                    _ => {
+                        return Err("Index and field assignment not supported in native codegen (requires heap allocation runtime). Use interpreter or bytecode VM instead.".to_string());
+                    }
+                };
+
                 // Evaluate expression into rax
                 self.gen_expr(value)?;
 
@@ -1706,7 +1715,7 @@ mod tests {
                     span: span(),
                 }),
                 body: vec![SetStmt {
-                    name: "x".to_string(),
+                    target: Box::new(Ident { name: "x".to_string(), span: SourceSpan::default() }),
                     value: Box::new(BinaryOp {
                         left: Box::new(Ident { name: "x".to_string(), span: SourceSpan::default() }),
                         op: Sub,

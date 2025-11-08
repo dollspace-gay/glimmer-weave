@@ -177,23 +177,49 @@ impl BytecodeCompiler {
                 })
             }
 
-            AstNode::SetStmt { name, value, .. } => {
+            AstNode::SetStmt { target, value, .. } => {
                 // Compile the value
                 let value_reg = self.compile_expr(value)?;
 
-                // Store to variable
-                let location = self.resolve_variable(name)?;
-                match location {
-                    VarLocation::Local(index) => {
-                        self.emit(Instruction::StoreLocal { local_index: index, src: value_reg }, 0);
+                match target.as_ref() {
+                    // Simple identifier: set x to 5
+                    AstNode::Ident { name, .. } => {
+                        let location = self.resolve_variable(name)?;
+                        match location {
+                            VarLocation::Local(index) => {
+                                self.emit(Instruction::StoreLocal { local_index: index, src: value_reg }, 0);
+                            }
+                            VarLocation::Global(_) => {
+                                let name_id = self.add_string_constant(name.clone());
+                                self.emit(Instruction::StoreGlobal { name_id, src: value_reg }, 0);
+                            }
+                            VarLocation::Function(_) => {
+                                self.free_register(value_reg);
+                                return Err(CompileError::UnsupportedFeature(
+                                    format!("Cannot assign to function '{}'", name)
+                                ));
+                            }
+                        }
                     }
-                    VarLocation::Global(_) => {
-                        let name_id = self.add_string_constant(name.clone());
-                        self.emit(Instruction::StoreGlobal { name_id, src: value_reg }, 0);
+                    // Index access: set list[i] to 5
+                    AstNode::IndexAccess { object, index, .. } => {
+                        let obj_reg = self.compile_expr(object)?;
+                        let index_reg = self.compile_expr(index)?;
+                        self.emit(Instruction::SetIndex { list: obj_reg, index: index_reg, value: value_reg }, 0);
+                        self.free_register(obj_reg);
+                        self.free_register(index_reg);
                     }
-                    VarLocation::Function(_) => {
+                    // Field access: set obj.field to "value"
+                    AstNode::FieldAccess { object, field, .. } => {
+                        let obj_reg = self.compile_expr(object)?;
+                        let field_id = self.add_string_constant(field.clone());
+                        self.emit(Instruction::SetField { map: obj_reg, field_id, value: value_reg }, 0);
+                        self.free_register(obj_reg);
+                    }
+                    _ => {
+                        self.free_register(value_reg);
                         return Err(CompileError::UnsupportedFeature(
-                            format!("Cannot assign to function '{}'", name)
+                            format!("Invalid assignment target: {:?}", target)
                         ));
                     }
                 }

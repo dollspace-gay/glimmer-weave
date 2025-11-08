@@ -129,8 +129,8 @@ bind sanitized to sanitize_input(user_input)
 chant analyze_range(lst) then
     bind min_val to list_min(lst)
     bind max_val to list_max(lst)
-    bind range to max_val - min_val
-    yield range
+    bind value_range to max_val - min_val
+    yield value_range
 end
 
 bind data_points to [10, 25, 15, 30, 20]
@@ -160,10 +160,10 @@ chant process_measurements(measurements) then
 
     bind min_temp to list_min(measurements)
     bind max_temp to list_max(measurements)
-    bind range to max_temp - min_temp
+    bind temp_range to max_temp - min_temp
 
     # Return a map-like list structure
-    yield [average, min_temp, max_temp, range]
+    yield [average, min_temp, max_temp, temp_range]
 end
 
 bind temperature_readings to [20.5, 21.3, 19.8, 22.1, 20.9, 21.7]
@@ -174,11 +174,4 @@ bind stats to process_measurements(temperature_readings)
 # ============================================================================
 
 # Return a summary of all calculations
-[
-    final_greeting,
-    identity,
-    avg_score,
-    point_distance,
-    hypotenuse,
-    stats
-]
+[final_greeting, identity, avg_score, point_distance, hypotenuse, stats]

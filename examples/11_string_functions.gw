@@ -14,9 +14,9 @@ bind lower_text to lower("WORLD")
 # Expected: "world"
 
 # Test: concat
-bind first to "Hello"
-bind second to " World"
-bind combined to concat(first, second)
+bind first_part to "Hello"
+bind second_part to " World"
+bind combined to concat(first_part, second_part)
 # Expected: "Hello World"
 
 # Test: slice

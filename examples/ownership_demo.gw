@@ -99,15 +99,14 @@ VGA.write("Independent: list3=" + to_text(list3) + ", list4=" + to_text(list4))
 VGA.write("")
 VGA.write("=== Example 5: Lifetimes ===")
 
-# Return borrowed reference with same lifetime as input
-chant first_element<'span>(borrow 'span list as List<Number>) -> borrow 'span Number then
-    yield borrow list[0]
+# Return first element (by value)
+chant first_element(borrow list as List<Number>) -> Number then
+    yield list[0]
 end
 
 bind nums to [100, 200, 300]
-bind first to first_element(borrow nums)
-VGA.write("First element: " + to_text(first))
-# 'first' is valid as long as 'nums' is valid
+bind first_num to first_element(borrow nums)
+VGA.write("First element: " + to_text(first_num))
 
 # ============================================================================
 # Example 6: Choosing Longest String
@@ -117,12 +116,12 @@ VGA.write("")
 VGA.write("=== Example 6: Multiple Lifetimes ===")
 
 # Both inputs have same lifetime, so output can be either
-chant longest<'span>(
-    borrow 'span first as Text,
-    borrow 'span second as Text
-) -> borrow 'span Text then
-    should first.length() > second.length() then
-        yield first
+chant longest(
+    borrow first_text as Text,
+    borrow second as Text
+) -> Text then
+    should first_text.length() greater than second.length() then
+        yield first_text
     otherwise
         yield second
     end
@@ -141,19 +140,19 @@ VGA.write("")
 VGA.write("=== Example 7: Struct with Borrows ===")
 
 # Struct holding borrowed slice of data
-form Slice<'span> with
-    data: borrow 'span List<Number>
-    start: Number
-    length: Number
+form Slice with
+    data as List<Number>
+    start as Number
+    length as Number
 end
 
-chant make_slice<'span>(
-    borrow 'span list as List<Number>,
+chant make_slice(
+    borrow list as List<Number>,
     start as Number,
     len as Number
-) -> Slice<'span> then
+) -> Slice then
     yield Slice {
-        data: borrow list,
+        data: list,
         start: start,
         length: len
     }
@@ -171,15 +170,15 @@ VGA.write("Slice created from index " + to_text(slice.start))
 VGA.write("")
 VGA.write("=== Example 8: Iterator Pattern ===")
 
-form Iter<'span> with
-    data: borrow 'span List<Number>
-    index: Number
+form Iter with
+    data as List<Number>
+    index as Number
 end
 
 # Create iterator that borrows from collection
-chant make_iter<'span>(borrow 'span list as List<Number>) -> Iter<'span> then
+chant make_iter(borrow list as List<Number>) -> Iter then
     yield Iter {
-        data: borrow list,
+        data: list,
         index: 0
     }
 end
@@ -188,7 +187,7 @@ bind collection to [10, 20, 30, 40, 50]
 weave iter as make_iter(borrow collection)
 
 VGA.write("Iterating over borrowed data:")
-whilst iter.index < iter.data.length() then
+whilst iter.index less than iter.data.length() then
     VGA.write("  Item: " + to_text(iter.data[iter.index]))
     set iter.index to iter.index + 1
 end
@@ -203,7 +202,7 @@ VGA.write("Original collection still accessible: " + to_text(collection))
 VGA.write("")
 VGA.write("=== Example 9: Borrow Scope ===")
 
-weave data to [1, 2, 3]
+weave data as [1, 2, 3]
 
 # Shared borrow
 bind ref to borrow data
@@ -252,7 +251,7 @@ chant add_prefix(borrow mut list as List<Number>, prefix as Number) then
     end
 end
 
-weave prefixed to [1, 2, 3]
+weave prefixed as [1, 2, 3]
 add_prefix(borrow mut prefixed, 100)
 VGA.write("After prefix: " + to_text(prefixed))
 

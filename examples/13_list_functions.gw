@@ -7,10 +7,10 @@ bind count to list_length(numbers)
 # Expected: 5
 
 # Test: list_first and list_last
-bind first to list_first(numbers)
+bind first_item to list_first(numbers)
 # Expected: 1
 
-bind last to list_last(numbers)
+bind last_item to list_last(numbers)
 # Expected: 5
 
 # Test: list_push

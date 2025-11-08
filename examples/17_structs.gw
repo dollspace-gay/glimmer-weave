@@ -45,10 +45,10 @@ bind dist1 to distance_from_origin(p1)  # Should be 25 (3^2 + 4^2)
 bind dist2 to distance_from_origin(p2)  # Should be 500 (10^2 + 20^2)
 
 # Create a rectangle using points
-bind rect to Rectangle {
-    top_left: Point { x: 0, y: 10 },
-    bottom_right: Point { x: 5, y: 0 }
-}
+# Note: Nested struct literals not yet supported, so create points first
+bind rect_top_left to Point { x: 0, y: 10 }
+bind rect_bottom_right to Point { x: 5, y: 0 }
+bind rect to Rectangle { top_left: rect_top_left, bottom_right: rect_bottom_right }
 
 # Access nested struct fields
 bind rect_width to rect.bottom_right.x - rect.top_left.x

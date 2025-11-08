@@ -81,11 +81,11 @@ chant demonstrate_modify_while_borrowed() then
 
     # FIX: Ensure borrow ends before modification
     bind ref to borrow numbers
-    bind first to ref[0]
+    bind first_elem to ref[0]
     # ref no longer used, borrow ends
 
     numbers.push(4)  # OK now
-    VGA.write("First was: " + to_text(first))
+    VGA.write("First was: " + to_text(first_elem))
     VGA.write("After push: " + to_text(numbers))
 end
 

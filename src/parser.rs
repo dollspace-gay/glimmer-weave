@@ -212,27 +212,19 @@ impl Parser {
         Ok(AstNode::WeaveStmt { name, typ, value, span })
     }
 
-    /// Parse: set counter to 10
+    /// Parse: set counter to 10, set list[i] to 5, set obj.field to "value"
     fn parse_set(&mut self) -> ParseResult<AstNode> {
         let span = self.current_span();
         self.expect(Token::Set)?;
 
-        let name = match self.current() {
-            Token::Ident(n) => n.clone(),
-            _ => {
-                return Err(ParseError {
-                    message: "Expected identifier after 'set'".to_string(),
-                    position: self.position,
-                })
-            }
-        };
-        self.advance();
+        // Parse target expression (identifier, index access, or field access)
+        let target = Box::new(self.parse_postfix()?);
 
         self.expect(Token::To)?;
 
         let value = Box::new(self.parse_expression()?);
 
-        Ok(AstNode::SetStmt { name, value, span })
+        Ok(AstNode::SetStmt { target, value, span })
     }
 
     /// Parse: should x > 5 then ... otherwise ... end
@@ -385,12 +377,31 @@ impl Parser {
 
         // Parse parameters with optional type annotations
         self.expect(Token::LeftParen)?;
+        self.skip_newlines();  // Skip newlines after opening paren
 
         let mut params = Vec::new();
         if !matches!(self.current(), Token::RightParen) {
             loop {
                 // Check for variadic parameter: ...name
                 let is_variadic = self.match_token(Token::Ellipsis);
+
+                // Check for borrow mode: borrow [mut]
+                let (borrow_mode, lifetime) = if self.match_token(Token::Borrow) {
+                    // Check if it's mutable borrow
+                    let is_mut = self.match_token(Token::Mut);
+
+                    // TODO: Parse lifetime annotations like 'a, 'b
+                    // For now, no lifetime support in parameters
+                    let lifetime = None;
+
+                    if is_mut {
+                        (BorrowMode::BorrowedMut, lifetime)
+                    } else {
+                        (BorrowMode::Borrowed, lifetime)
+                    }
+                } else {
+                    (BorrowMode::Owned, None)
+                };
 
                 let param_name = match self.current() {
                     Token::Ident(p) => p.clone(),
@@ -403,8 +414,8 @@ impl Parser {
                 };
                 self.advance();
 
-                // Check for optional type annotation: ': Type'
-                let param_type = if self.match_token(Token::Colon) {
+                // Check for optional type annotation: 'as Type'
+                let param_type = if self.match_token(Token::As) {
                     Some(self.parse_type_annotation()?)
                 } else {
                     None
@@ -414,8 +425,8 @@ impl Parser {
                     name: param_name,
                     typ: param_type,
                     is_variadic,
-                    borrow_mode: BorrowMode::Owned,
-                    lifetime: None,
+                    borrow_mode,
+                    lifetime,
                 });
 
                 // If this is a variadic parameter, it must be the last one
@@ -432,9 +443,11 @@ impl Parser {
                 if !self.match_token(Token::Comma) {
                     break;
                 }
+                self.skip_newlines();  // Skip newlines after comma
             }
         }
 
+        self.skip_newlines();  // Skip newlines before closing paren
         self.expect(Token::RightParen)?;
 
         // Check for optional return type: '-> Type'
@@ -1550,6 +1563,17 @@ impl Parser {
                     span,
                 })
             }
+            Token::Borrow => {
+                let span = self.current_span();
+                self.advance();
+                // Check for 'borrow mut'
+                let mutable = self.match_token(Token::Mut);
+                Ok(AstNode::BorrowExpr {
+                    value: Box::new(self.parse_unary()?),
+                    mutable,
+                    span,
+                })
+            }
             _ => self.parse_postfix(),
         }
     }
@@ -1625,6 +1649,7 @@ impl Parser {
                             if let AstNode::Ident { name: struct_name, .. } = expr {
                                 let span = self.current_span();
                                 self.advance(); // consume {
+                                self.skip_newlines();  // Skip newlines after opening brace
 
                                 let mut fields = Vec::new();
                                 if !matches!(self.current(), Token::RightBrace) {
@@ -1646,9 +1671,11 @@ impl Parser {
                                         if !self.match_token(Token::Comma) {
                                             break;
                                         }
+                                        self.skip_newlines();  // Skip newlines after comma
                                     }
                                 }
 
+                                self.skip_newlines();  // Skip newlines before closing brace
                                 self.expect(Token::RightBrace)?;
                                 expr = AstNode::StructLiteral {
                                     struct_name,
@@ -1711,6 +1738,7 @@ impl Parser {
                     if let AstNode::Ident { name: struct_name, .. } = expr {
                         let span = self.current_span();
                         self.advance(); // consume '{'
+                        self.skip_newlines();  // Skip newlines after opening brace
 
                         let mut fields = Vec::new();
                         if !matches!(self.current(), Token::RightBrace) {
@@ -1735,9 +1763,11 @@ impl Parser {
                                 if !self.match_token(Token::Comma) {
                                     break;
                                 }
+                                self.skip_newlines();  // Skip newlines after comma
                             }
                         }
 
+                        self.skip_newlines();  // Skip newlines before closing brace
                         self.expect(Token::RightBrace)?;
                         expr = AstNode::StructLiteral {
                             struct_name,
@@ -1850,6 +1880,7 @@ impl Parser {
     fn parse_list(&mut self) -> ParseResult<AstNode> {
         let span = self.current_span();
         self.expect(Token::LeftBracket)?;
+        self.skip_newlines();  // Skip newlines after opening bracket
 
         let mut elements = Vec::new();
         if !matches!(self.current(), Token::RightBracket) {
@@ -1858,9 +1889,11 @@ impl Parser {
                 if !self.match_token(Token::Comma) {
                     break;
                 }
+                self.skip_newlines();  // Skip newlines after comma
             }
         }
 
+        self.skip_newlines();  // Skip newlines before closing bracket
         self.expect(Token::RightBracket)?;
         Ok(AstNode::List { elements, span })
     }

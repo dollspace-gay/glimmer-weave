@@ -54,19 +54,19 @@ consume_person(alice)  # alice moved here
 # But alice_copy is still valid
 greet(borrow alice_copy)
 
-# Struct with borrowed data
-form Report<'span> with
+# Struct with data
+form Report with
     title as Text
-    data as borrow 'span List<Number>
+    data as List<Number>
 end
 
-chant create_report<'span>(
+chant create_report(
     title as Text,
-    borrow 'span numbers as List<Number>
-) -> Report<'span> then
+    borrow numbers as List<Number>
+) -> Report then
     yield Report {
         title: title,
-        data: borrow numbers
+        data: numbers
     }
 end
 

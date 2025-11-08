@@ -14,7 +14,7 @@ end
 chant filter_positive(numbers as List<Number>) -> List<Number> then
     bind result to []
     for each num in numbers then
-        should num > 0 then
+        should num greater than 0 then
             result.push(num)
         end
     end
@@ -29,8 +29,8 @@ chant negate_all(borrow mut numbers as List<Number>) then
 end
 
 # Pattern: Combining collections
-chant merge(first as List<Number>, second as List<Number>) -> List<Number> then
-    bind result to first  # Take ownership of first
+chant merge(first_list as List<Number>, second as List<Number>) -> List<Number> then
+    bind result to first_list  # Take ownership of first_list
     for each item in second then
         result.push(item)
     end

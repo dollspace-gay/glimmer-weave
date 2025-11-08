@@ -732,6 +732,11 @@ impl Evaluator {
                 value: None,
             }),
 
+            // === Borrow expression ===
+            // NOTE: Borrow checking is not yet implemented
+            // For now, just evaluate the inner value (pass-through)
+            AstNode::BorrowExpr { value, .. } => self.eval_node(value),
+
             // === Variables ===
             AstNode::Ident { name, .. } => self.environment.get(name),
 
@@ -772,10 +777,90 @@ impl Evaluator {
                 Ok(val)
             }
 
-            // set counter to 10
-            AstNode::SetStmt { name, value, .. } => {
+            // set counter to 10, set list[i] to 5, set obj.field to "value"
+            AstNode::SetStmt { target, value, .. } => {
                 let val = self.eval_node(value)?;
-                self.environment.set(name, val.clone())?;
+
+                match target.as_ref() {
+                    // Simple identifier: set x to 5
+                    AstNode::Ident { name, .. } => {
+                        self.environment.set(name, val.clone())?;
+                    }
+                    // Index access: set list[i] to 5
+                    AstNode::IndexAccess { object, index, .. } => {
+                        let obj_val = self.eval_node(object)?;
+                        let index_val = self.eval_node(index)?;
+
+                        match (obj_val, index_val) {
+                            (Value::List(mut items), Value::Number(idx)) => {
+                                let i = idx as usize;
+                                if i >= items.len() {
+                                    return Err(RuntimeError::Custom(format!(
+                                        "Index {} out of bounds for list of length {}",
+                                        i,
+                                        items.len()
+                                    )));
+                                }
+                                items[i] = val.clone();
+
+                                // Update the original variable
+                                if let AstNode::Ident { name, .. } = object.as_ref() {
+                                    self.environment.set(name, Value::List(items))?;
+                                } else {
+                                    return Err(RuntimeError::Custom(
+                                        "Can only assign to list elements of variables".to_string(),
+                                    ));
+                                }
+                            }
+                            (Value::Map(mut map), Value::Text(key)) => {
+                                map.insert(key, val.clone());
+
+                                // Update the original variable
+                                if let AstNode::Ident { name, .. } = object.as_ref() {
+                                    self.environment.set(name, Value::Map(map))?;
+                                } else {
+                                    return Err(RuntimeError::Custom(
+                                        "Can only assign to map elements of variables".to_string(),
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Err(RuntimeError::Custom(
+                                    "Invalid index assignment".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    // Field access: set obj.field to "value"
+                    AstNode::FieldAccess { object, field, .. } => {
+                        let mut obj_val = self.eval_node(object)?;
+
+                        if let Value::StructInstance { ref mut fields, .. } = obj_val {
+                            fields.insert(field.clone(), val.clone());
+
+                            // Update the original variable
+                            if let AstNode::Ident { name, .. } = object.as_ref() {
+                                self.environment.set(name, obj_val)?;
+                            } else {
+                                return Err(RuntimeError::Custom(
+                                    "Can only assign to fields of variables".to_string(),
+                                ));
+                            }
+                        } else {
+                            return Err(RuntimeError::Custom(format!(
+                                "Cannot access field on non-struct value: {:?}",
+                                obj_val
+                            )));
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::Custom(format!(
+                            "Invalid assignment target: {:?}",
+                            target
+                        )));
+                    }
+                }
+
                 Ok(val)
             }
 

@@ -2,9 +2,9 @@
 # Demonstrates practical patterns for working with ownership
 
 # Pattern 1: Builder pattern (returns ownership)
-chant create_list(start as Number, end as Number) -> List<Number> then
+chant create_list(start as Number, finish as Number) -> List<Number> then
     bind result to []
-    for each i in range(start, end + 1) then
+    for each i in range(start, finish + 1) then
         result.push(i)
     end
     yield result  # Transfer ownership to caller

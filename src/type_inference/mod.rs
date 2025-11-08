@@ -281,12 +281,20 @@ impl TypeInference {
             }
 
             // Assignment
-            AstNode::SetStmt { name, value, .. } => {
+            AstNode::SetStmt { target, value, .. } => {
                 let value_ty = self.generate_constraints_internal(value, constraints, environment)?;
-                if let Some(var_ty) = environment.get(name) {
-                    constraints.push((var_ty.clone(), value_ty));
-                } else {
-                    return Err(format!("Undefined variable in assignment: {}", name));
+                match target.as_ref() {
+                    AstNode::Ident { name, .. } => {
+                        if let Some(var_ty) = environment.get(name) {
+                            constraints.push((var_ty.clone(), value_ty));
+                        } else {
+                            return Err(format!("Undefined variable in assignment: {}", name));
+                        }
+                    }
+                    _ => {
+                        // For index/field assignment, just analyze the target
+                        self.generate_constraints_internal(target, constraints, environment)?;
+                    }
                 }
                 Ok(Type::Nothing)
             }

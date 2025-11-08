@@ -620,6 +620,11 @@ impl SemanticAnalyzer {
             AstNode::Present { .. } => Type::Any, // TODO: proper Maybe<T> type
             AstNode::Absent { .. } => Type::Any, // TODO: proper Maybe<T> type
 
+            // === Borrow expression ===
+            // NOTE: Borrow checking is not yet implemented
+            // For now, just return the type of the inner value
+            AstNode::BorrowExpr { value, .. } => self.analyze_node(value),
+
             // === Variables ===
             AstNode::Ident { name, .. } => {
                 if let Some(symbol) = self.symbol_table.lookup(name) {
@@ -681,24 +686,34 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::SetStmt { name, value, .. } => {
-                // Check variable exists and is mutable
-                let symbol_info = self.symbol_table.lookup(name).map(|s| (s.typ.clone(), s.mutable));
+            AstNode::SetStmt { target, value, .. } => {
+                // Analyze the target and value
+                match target.as_ref() {
+                    AstNode::Ident { name, .. } => {
+                        // Check variable exists and is mutable
+                        let symbol_info = self.symbol_table.lookup(name).map(|s| (s.typ.clone(), s.mutable));
 
-                if let Some((expected_type, is_mutable)) = symbol_info {
-                    if !is_mutable {
-                        self.errors.push(SemanticError::ImmutableBinding(name.clone()));
+                        if let Some((expected_type, is_mutable)) = symbol_info {
+                            if !is_mutable {
+                                self.errors.push(SemanticError::ImmutableBinding(name.clone()));
+                            }
+                            let value_type = self.analyze_node(value);
+                            if !expected_type.is_compatible(&value_type) {
+                                self.errors.push(SemanticError::TypeError {
+                                    expected: expected_type.name().to_string(),
+                                    got: value_type.name().to_string(),
+                                    context: format!("assignment to '{}'", name),
+                                });
+                            }
+                        } else {
+                            self.errors.push(SemanticError::UndefinedVariable(name.clone()));
+                        }
                     }
-                    let value_type = self.analyze_node(value);
-                    if !expected_type.is_compatible(&value_type) {
-                        self.errors.push(SemanticError::TypeError {
-                            expected: expected_type.name().to_string(),
-                            got: value_type.name().to_string(),
-                            context: format!("assignment to '{}'", name),
-                        });
+                    _ => {
+                        // For index/field assignment, just analyze both sides
+                        self.analyze_node(target);
+                        self.analyze_node(value);
                     }
-                } else {
-                    self.errors.push(SemanticError::UndefinedVariable(name.clone()));
                 }
                 Type::Nothing
             }

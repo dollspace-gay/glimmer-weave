@@ -14,7 +14,7 @@ end
 chant max(borrow list as List<Number>) -> Number then
     bind maximum to list[0]
     for each item in borrow list then
-        should item > maximum then
+        should item greater than maximum then
             set maximum to item
         end
     end

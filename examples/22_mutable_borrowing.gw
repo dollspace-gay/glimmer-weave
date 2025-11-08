@@ -9,11 +9,11 @@ chant double_all(borrow mut list as List<Number>) then
 end
 
 # Function that sorts a list in place (simplified bubble sort)
-chant sort(borrow mut list as List<Number>) then
+chant sort_list(borrow mut list as List<Number>) then
     bind n to list.length()
     for each i in range(0, n) then
         for each j in range(0, n - i - 1) then
-            should list[j] > list[j + 1] then
+            should list[j] greater than list[j + 1] then
                 # Swap elements
                 bind temp to list[j]
                 set list[j] to list[j + 1]
@@ -32,7 +32,7 @@ double_all(borrow mut numbers)
 VGA.write("After doubling: " + to_text(numbers))
 
 # Mutable borrow to sort
-sort(borrow mut numbers)
+sort_list(borrow mut numbers)
 VGA.write("After sorting: " + to_text(numbers))
 
 # Only ONE mutable borrow allowed at a time

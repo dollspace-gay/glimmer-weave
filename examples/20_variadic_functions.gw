@@ -59,9 +59,9 @@ end
 bind formatted to format("User: %s, Age: %d", "Alice", 30)
 # Result: ["User: %s, Age: %d", ["Alice", 30]]
 
-# Create list with first, second, and rest
-chant make_list(first, second, ...rest) then
-    weave result as [first, second]
+# Create list with first_item, second_item, and rest
+chant make_list(first_item, second_item, ...rest) then
+    weave result as [first_item, second_item]
     for each item in rest then
         set result to list_push(result, item)
     end

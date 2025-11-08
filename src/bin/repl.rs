@@ -263,7 +263,7 @@ enum EvalError {
 fn try_eval(evaluator: &mut Evaluator, source: &str) -> std::result::Result<glimmer_weave::eval::Value, EvalError> {
     // Tokenize
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     // Check for common incomplete patterns
     if is_incomplete(source) {

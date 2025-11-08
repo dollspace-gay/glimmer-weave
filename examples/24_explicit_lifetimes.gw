@@ -1,0 +1,80 @@
+# Example 24: Explicit Lifetime Parameters
+# Demonstrates explicit lifetime annotation syntax
+
+# Function with explicit lifetime parameter
+# The 'a lifetime ties the input reference to the output reference
+chant get_element<'a>(borrow 'a items as List<Number>, index as Number) -> Number then
+    yield items[index]
+end
+
+# Function with multiple explicit lifetime parameters
+# Each input can have its own lifetime
+chant choose_longer<'x, 'y>(
+    borrow 'x text_a as Text,
+    borrow 'y text_b as Text
+) -> Text then
+    should text_a.length() >= text_b.length() then
+        yield text_a
+    otherwise
+        yield text_b
+    end
+end
+
+# Function mixing lifetime and type parameters
+# Lifetimes come first, then type parameters
+chant identity<'span, T>(borrow 'span value as T) -> T then
+    yield value
+end
+
+# Function with static lifetime (lives forever)
+chant get_constant<'static>() -> Text then
+    yield "This is a constant"
+end
+
+## Usage Examples
+
+# Create some data
+bind numbers to [10, 20, 30, 40, 50]
+bind name to "Glimmer"
+bind title to "Weave"
+
+# Get element with explicit lifetime
+bind third to get_element(borrow numbers, 2)
+VGA.write("Third element: " + to_text(third))
+
+# Choose longer text
+bind longer to choose_longer(borrow name, borrow title)
+VGA.write("Longer text: " + longer)
+
+# Generic identity with lifetime
+bind same to identity(borrow numbers)
+VGA.write("Same list length: " + to_text(same.length()))
+
+# Static constant
+bind constant to get_constant()
+VGA.write("Constant: " + constant)
+
+## Why Explicit Lifetimes?
+
+# Most of the time, lifetime elision (implicit lifetimes) works fine.
+# Explicit lifetimes are needed when:
+#
+# 1. Multiple input references with different lifetimes
+#    - Compiler can't infer which lifetime the output should match
+#    - Example: choose_longer above
+#
+# 2. Generic functions with references
+#    - Need to specify relationship between generic type and lifetime
+#    - Example: identity above
+#
+# 3. Complex lifetime relationships
+#    - When returning references from multiple sources
+#    - When storing references in data structures
+#
+# 4. Documentation purposes
+#    - Makes lifetime relationships explicit and clear
+#    - Helps other developers understand reference semantics
+
+# NOTE: This example demonstrates syntax only.
+# Actual lifetime checking is performed by the lifetime_checker module.
+# See docs/ownership_borrowing_design.md for full details.

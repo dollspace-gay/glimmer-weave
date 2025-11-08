@@ -343,15 +343,29 @@ impl Parser {
         };
         self.advance();
 
-        // Parse optional generic type parameters: <T, U>
-        let type_params = if matches!(self.current(), Token::LeftAngle) {
+        // Parse optional generic parameters: <'a, 'b, T, U>
+        // Lifetimes come first, then type parameters
+        let (lifetime_params, type_params) = if matches!(self.current(), Token::LeftAngle) {
             self.advance(); // consume <
-            let mut params = Vec::new();
+            let mut lifetimes = Vec::new();
+            let mut types = Vec::new();
 
             loop {
                 match self.current() {
+                    Token::Lifetime(lt_name) => {
+                        lifetimes.push(Lifetime {
+                            name: lt_name.clone(),
+                        });
+                        self.advance();
+
+                        if matches!(self.current(), Token::Comma) {
+                            self.advance(); // consume comma
+                        } else {
+                            break;
+                        }
+                    }
                     Token::Ident(param_name) => {
-                        params.push(param_name.clone());
+                        types.push(param_name.clone());
                         self.advance();
 
                         if matches!(self.current(), Token::Comma) {
@@ -362,7 +376,7 @@ impl Parser {
                     }
                     _ => {
                         return Err(ParseError {
-                            message: "Expected type parameter name".to_string(),
+                            message: "Expected lifetime ('a) or type parameter (T)".to_string(),
                             position: self.position,
                         })
                     }
@@ -370,9 +384,9 @@ impl Parser {
             }
 
             self.expect(Token::RightAngle)?;
-            params
+            (lifetimes, types)
         } else {
-            Vec::new() // No generic type parameters
+            (Vec::new(), Vec::new()) // No generic parameters
         };
 
         // Parse parameters with optional type annotations
@@ -385,14 +399,21 @@ impl Parser {
                 // Check for variadic parameter: ...name
                 let is_variadic = self.match_token(Token::Ellipsis);
 
-                // Check for borrow mode: borrow [mut]
+                // Check for borrow mode: borrow [mut] ['lifetime]
                 let (borrow_mode, lifetime) = if self.match_token(Token::Borrow) {
                     // Check if it's mutable borrow
                     let is_mut = self.match_token(Token::Mut);
 
-                    // TODO: Parse lifetime annotations like 'a, 'b
-                    // For now, no lifetime support in parameters
-                    let lifetime = None;
+                    // Parse optional lifetime annotation like 'a, 'span
+                    let lifetime = if let Token::Lifetime(lt_name) = self.current() {
+                        let lt = Some(Lifetime {
+                            name: lt_name.clone(),
+                        });
+                        self.advance();
+                        lt
+                    } else {
+                        None
+                    };
 
                     if is_mut {
                         (BorrowMode::BorrowedMut, lifetime)
@@ -471,10 +492,10 @@ impl Parser {
         Ok(AstNode::ChantDef {
             name,
             type_params,
+            lifetime_params,
             params,
             return_type,
             body,
-            lifetime_params: Vec::new(),
             span: self.current_span(),
         })
     }
@@ -2238,6 +2259,122 @@ end
             }
         } else {
             panic!("Expected ModuleDecl, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_explicit_lifetime_parameters() {
+        // Test function with explicit lifetime parameters
+        let source = r#"
+            chant get_first<'a>(borrow 'a list as List<Number>) -> Number then
+                yield list[0]
+            end
+        "#;
+
+        let mut lexer = crate::lexer::Lexer::new(source);
+        let tokens = lexer.tokenize_positioned();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+
+        assert!(result.is_ok(), "Failed to parse lifetime parameters: {:?}", result);
+
+        if let Ok(nodes) = result {
+            assert_eq!(nodes.len(), 1);
+
+            if let AstNode::ChantDef {
+                name,
+                lifetime_params,
+                params,
+                ..
+            } = &nodes[0]
+            {
+                assert_eq!(name, "get_first");
+                assert_eq!(lifetime_params.len(), 1);
+                assert_eq!(lifetime_params[0].name, "a");
+
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0].name, "list");
+                assert_eq!(params[0].borrow_mode, BorrowMode::Borrowed);
+                assert!(params[0].lifetime.is_some());
+                assert_eq!(params[0].lifetime.as_ref().unwrap().name, "a");
+            } else {
+                panic!("Expected ChantDef, got: {:?}", nodes[0]);
+            }
+        } else {
+            panic!("Parse failed");
+        }
+    }
+
+    #[test]
+    fn test_multiple_lifetime_parameters() {
+        // Test function with multiple lifetime parameters
+        let source = r#"
+            chant choose<'a, 'b>(borrow 'a text1 as Text, borrow 'b text2 as Text) -> Text then
+                yield text1
+            end
+        "#;
+
+        let mut lexer = crate::lexer::Lexer::new(source);
+        let tokens = lexer.tokenize_positioned();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+
+        assert!(result.is_ok(), "Failed to parse multiple lifetimes: {:?}", result);
+
+        if let Ok(nodes) = result {
+            if let AstNode::ChantDef {
+                lifetime_params,
+                params,
+                ..
+            } = &nodes[0]
+            {
+                assert_eq!(lifetime_params.len(), 2);
+                assert_eq!(lifetime_params[0].name, "a");
+                assert_eq!(lifetime_params[1].name, "b");
+
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].lifetime.as_ref().unwrap().name, "a");
+                assert_eq!(params[1].lifetime.as_ref().unwrap().name, "b");
+            } else {
+                panic!("Expected ChantDef");
+            }
+        }
+    }
+
+    #[test]
+    fn test_lifetime_and_type_parameters() {
+        // Test function with both lifetime and type parameters
+        let source = r#"
+            chant process<'a, T>(borrow 'a data as T) -> T then
+                yield data
+            end
+        "#;
+
+        let mut lexer = crate::lexer::Lexer::new(source);
+        let tokens = lexer.tokenize_positioned();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+
+        assert!(result.is_ok(), "Failed to parse mixed parameters: {:?}", result);
+
+        if let Ok(nodes) = result {
+            if let AstNode::ChantDef {
+                lifetime_params,
+                type_params,
+                params,
+                ..
+            } = &nodes[0]
+            {
+                assert_eq!(lifetime_params.len(), 1);
+                assert_eq!(lifetime_params[0].name, "a");
+
+                assert_eq!(type_params.len(), 1);
+                assert_eq!(type_params[0], "T");
+
+                assert_eq!(params[0].lifetime.as_ref().unwrap().name, "a");
+            } else {
+                panic!("Expected ChantDef");
+            }
         }
     }
 }

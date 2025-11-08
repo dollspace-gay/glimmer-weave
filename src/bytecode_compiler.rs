@@ -1162,6 +1162,7 @@ impl BytecodeCompiler {
     }
 
     /// Convert AST node to string representation (for capability requests)
+    #[allow(clippy::only_used_in_recursion)]
     fn node_to_string(&self, node: &AstNode) -> String {
         match node {
             AstNode::Ident { name, .. } => name.clone(),

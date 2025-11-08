@@ -1,7 +1,6 @@
 /// Source Location Tracking
 ///
 /// Tracks positions in source code for error reporting.
-
 use alloc::string::String;
 use core::fmt;
 

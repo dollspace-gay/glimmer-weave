@@ -149,23 +149,21 @@ impl NativeRuntime {
     ///        r11 = pointer to string data (source)
     /// Output: rax = pointer to allocated string (with length prefix)
     pub fn gen_string_alloc() -> Vec<Instruction> {
-        let mut code = Vec::new();
-
-        code.push(Instruction::Comment("Allocate string on heap".to_string()));
-
-        // Calculate total size: 8 bytes (length) + string data
-        code.push(Instruction::Mov(
-            "%r10".to_string(),
-            "%rdi".to_string()
-        ));
-        code.push(Instruction::Add(
-            "$8".to_string(),
-            "%rdi".to_string()
-        ));
-
-        // Save r10 and r11 (will be clobbered by malloc call)
-        code.push(Instruction::Push("%r10".to_string()));
-        code.push(Instruction::Push("%r11".to_string()));
+        let mut code = vec![
+            Instruction::Comment("Allocate string on heap".to_string()),
+            // Calculate total size: 8 bytes (length) + string data
+            Instruction::Mov(
+                "%r10".to_string(),
+                "%rdi".to_string()
+            ),
+            Instruction::Add(
+                "$8".to_string(),
+                "%rdi".to_string()
+            ),
+            // Save r10 and r11 (will be clobbered by malloc call)
+            Instruction::Push("%r10".to_string()),
+            Instruction::Push("%r11".to_string()),
+        ];
 
         // Call malloc
         code.extend(Self::gen_malloc_call());

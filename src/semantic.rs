@@ -1564,7 +1564,7 @@ mod tests {
             value: Box::new(AstNode::Number { value: 1.0, span: span() }),
             arms: vec![
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number { value: 1.0, span: span() }),
+                    pattern: Pattern::Literal(Box::new(AstNode::Number { value: 1.0, span: span() })),
                     body: vec![AstNode::Number { value: 100.0, span: span() }],
                 },
                 MatchArm {
@@ -1621,11 +1621,11 @@ mod tests {
             value: Box::new(AstNode::Number { value: 2.0, span: span() }),
             arms: vec![
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number { value: 1.0, span: span() }),
+                    pattern: Pattern::Literal(Box::new(AstNode::Number { value: 1.0, span: span() })),
                     body: vec![AstNode::Number { value: 100.0, span: span() }],
                 },
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number { value: 2.0, span: span() }),
+                    pattern: Pattern::Literal(Box::new(AstNode::Number { value: 2.0, span: span() })),
                     body: vec![AstNode::Number { value: 200.0, span: span() }],
                 },
             ],

@@ -84,7 +84,8 @@ impl fmt::Display for LifetimeError {
 struct LifetimeInfo {
     /// The lifetime of this variable
     lifetime: Option<Lifetime>,
-    /// Where this variable was declared
+    /// Where this variable was declared (will be used for better error messages in the future)
+    #[allow(dead_code)]
     span: SourceSpan,
 }
 

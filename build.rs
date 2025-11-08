@@ -12,7 +12,6 @@
  *
  * On Windows with MSVC, the allocator tests will be skipped.
  */
-
 use std::env;
 
 fn main() {

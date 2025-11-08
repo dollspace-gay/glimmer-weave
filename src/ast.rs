@@ -570,7 +570,8 @@ pub struct MatchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     /// Literal pattern: `when 42 then ...`
-    Literal(AstNode),
+    /// Boxed to reduce enum size (AstNode is large: 248 bytes)
+    Literal(Box<AstNode>),
     /// Variable binding pattern: `when x then ...`
     Ident(String),
     /// Wildcard pattern: `otherwise`

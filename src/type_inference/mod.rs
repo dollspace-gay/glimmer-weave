@@ -414,6 +414,7 @@ impl TypeInference {
     }
 
     /// Check if a type variable occurs in a type (prevents infinite types)
+    #[allow(clippy::only_used_in_recursion)]
     fn occurs_check_internal(&self, var: &str, ty: &crate::semantic::Type) -> bool {
         use crate::semantic::Type;
 
@@ -429,6 +430,7 @@ impl TypeInference {
     }
 
     /// Apply substitutions to a type
+    #[allow(clippy::only_used_in_recursion)]
     fn apply_substitution_internal(
         &self,
         ty: &crate::semantic::Type,

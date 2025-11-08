@@ -1006,19 +1006,19 @@ impl Parser {
                 let val = *n;
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Number { value: val, span }))
+                Ok(Pattern::Literal(Box::new(AstNode::Number { value: val, span })))
             }
             Token::Text(s) => {
                 let val = s.clone();
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Text { value: val, span }))
+                Ok(Pattern::Literal(Box::new(AstNode::Text { value: val, span })))
             }
             Token::Truth(b) => {
                 let val = *b;
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Truth { value: val, span }))
+                Ok(Pattern::Literal(Box::new(AstNode::Truth { value: val, span })))
             }
             Token::Ident(name) => {
                 let n = name.clone();
@@ -1062,7 +1062,7 @@ impl Parser {
                         // This is a workaround until we add a proper Tuple pattern type
                         Ok(Pattern::Enum {
                             variant: n,
-                            inner: Some(Box::new(Pattern::Literal(
+                            inner: Some(Box::new(Pattern::Literal(Box::new(
                                 AstNode::List {
                                     elements: inner_patterns.into_iter()
                                         .map(|p| match p {
@@ -1072,7 +1072,7 @@ impl Parser {
                                         .collect(),
                                     span: SourceSpan::unknown(),
                                 }
-                            ))),
+                            )))),
                         })
                     }
                 } else {

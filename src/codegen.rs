@@ -222,9 +222,6 @@ pub struct CodeGen {
     /// Current function entry label (for TCO jumps)
     function_entry_label: Option<String>,
 
-    /// Native runtime support
-    runtime: NativeRuntime,
-
     /// Struct definitions (name -> field list)
     struct_defs: Vec<(String, Vec<crate::ast::StructField>)>,
 
@@ -248,7 +245,6 @@ impl CodeGen {
             variables: Vec::new(),
             current_function: None,
             function_entry_label: None,
-            runtime: NativeRuntime::new(),
             struct_defs: Vec::new(),
             string_literals: Vec::new(),
         }
@@ -1822,11 +1818,11 @@ mod tests {
             value: Box::new(Number { value: 2.0, span: span() }),
             arms: vec![
                 crate::ast::MatchArm {
-                    pattern: crate::ast::Pattern::Literal(Number { value: 1.0, span: span() }),
+                    pattern: crate::ast::Pattern::Literal(Box::new(Number { value: 1.0, span: span() })),
                     body: vec![Number { value: 100.0, span: span() }],
                 },
                 crate::ast::MatchArm {
-                    pattern: crate::ast::Pattern::Literal(Number { value: 2.0, span: span() }),
+                    pattern: crate::ast::Pattern::Literal(Box::new(Number { value: 2.0, span: span() })),
                     body: vec![Number { value: 200.0, span: span() }],
                 },
                 crate::ast::MatchArm {

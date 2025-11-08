@@ -1754,7 +1754,8 @@ impl Evaluator {
                             // Phase 2: Variant with fields - extract and bind them
                             if let Some(inner_pattern) = inner {
                                 // Check if this is a multi-field pattern (encoded as List)
-                                if let Pattern::Literal(AstNode::List { elements: ref field_names, .. }) = **inner_pattern {
+                                if let Pattern::Literal(lit_box) = &**inner_pattern {
+                                    if let AstNode::List { elements: ref field_names, .. } = **lit_box {
                                     // Multiple fields - bind each one
                                     if field_names.len() != fields.len() {
                                         return Ok(None); // Field count mismatch
@@ -1767,6 +1768,7 @@ impl Evaluator {
                                         }
                                     }
                                     return Ok(Some(bindings));
+                                    }
                                 } else {
                                     // Single field - match it against the inner pattern
                                     if fields.len() != 1 {
@@ -1953,6 +1955,7 @@ impl Evaluator {
     }
 
     /// Convert AST node to string representation (for capability requests)
+    #[allow(clippy::only_used_in_recursion)]
     fn node_to_string(&self, node: &AstNode) -> String {
         match node {
             AstNode::Ident { name, .. } => name.clone(),

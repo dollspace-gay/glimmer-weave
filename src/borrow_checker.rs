@@ -248,14 +248,12 @@ impl BorrowChecker {
             }
             AstNode::Ident { name, span } => {
                 // Check if variable is moved
-                if let Some(state) = self.variables.get(name) {
-                    if let VarState::Moved(moved_at) = state {
-                        self.errors.push(BorrowError::UseAfterMove {
-                            variable: name.clone(),
-                            moved_at: moved_at.clone(),
-                            used_at: span.clone(),
-                        });
-                    }
+                if let Some(VarState::Moved(moved_at)) = self.variables.get(name) {
+                    self.errors.push(BorrowError::UseAfterMove {
+                        variable: name.clone(),
+                        moved_at: moved_at.clone(),
+                        used_at: span.clone(),
+                    });
                 }
             }
             AstNode::ChantDef { params, body, .. } => {

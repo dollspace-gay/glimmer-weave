@@ -24,7 +24,6 @@ use alloc::vec::Vec;
 use alloc::format;
 use crate::ast::*;
 use crate::native_runtime::NativeRuntime;
-use crate::source_location::SourceSpan;
 
 /// x86-64 register
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1475,7 +1474,7 @@ impl CodeGen {
                 // Emit string as .ascii directive (not null-terminated)
                 asm.push_str(&format!("    .ascii \"{}\"\n", data));
             }
-            asm.push_str("\n");
+            asm.push('\n');
         }
 
         // AT&T syntax header

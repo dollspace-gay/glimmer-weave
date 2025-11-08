@@ -14,9 +14,11 @@ use crate::source_location::SourceSpan;
 ///
 /// Specifies how ownership is handled when passing values or accessing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum BorrowMode {
     /// Owned: Takes ownership (move semantics)
     /// Example: `chant consume(data as List<Number>)`
+    #[default]
     Owned,
 
     /// Borrowed: Shared/immutable borrow (read-only access)
@@ -28,11 +30,6 @@ pub enum BorrowMode {
     BorrowedMut,
 }
 
-impl Default for BorrowMode {
-    fn default() -> Self {
-        BorrowMode::Owned
-    }
-}
 
 /// Lifetime annotation
 ///

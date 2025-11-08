@@ -310,9 +310,7 @@ impl ModuleResolver {
     pub fn check_circular_dependencies(&self) -> ResolverResult<()> {
         for module_path in self.dependency_graph.keys() {
             let mut visited = Vec::new();
-            if let Err(e) = self.check_cycle_from(module_path, &mut visited) {
-                return Err(e);
-            }
+            self.check_cycle_from(module_path, &mut visited)?
         }
         Ok(())
     }

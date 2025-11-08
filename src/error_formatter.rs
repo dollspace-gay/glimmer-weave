@@ -2,7 +2,7 @@
 //!
 //! Pretty-prints diagnostics with source location information.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::format;
 use core::fmt;

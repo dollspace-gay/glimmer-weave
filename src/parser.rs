@@ -1315,7 +1315,7 @@ impl Parser {
                 // Extract module name from path (e.g., "std/math.gw" -> "math")
                 let extracted_name = p.trim_end_matches(".gw")
                     .split('/')
-                    .last()
+                    .next_back()
                     .unwrap_or("unknown")
                     .to_string();
 

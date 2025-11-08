@@ -7,7 +7,9 @@
       "Bash(./debug_27.exe:*)",
       "Bash(./debug_28.exe)",
       "Bash(./debug_29.exe)",
-      "Bash(./debug_demo.exe:*)"
+      "Bash(./debug_demo.exe:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

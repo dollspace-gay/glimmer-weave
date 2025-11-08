@@ -1399,7 +1399,7 @@ impl SemanticAnalyzer {
                 if self.symbol_table.lookup(effective_name).is_some() {
                     self.errors.push(SemanticError::ImportConflict {
                         name: effective_name.clone(),
-                        source: format!("conflicts with existing symbol"),
+                        source: "conflicts with existing symbol".to_string(),
                     });
                 }
 

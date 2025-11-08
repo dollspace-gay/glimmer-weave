@@ -1,0 +1,92 @@
+# Example 27: Collections and Ownership
+# Demonstrates ownership patterns with lists and maps
+
+# Pattern: Iterating without consuming
+chant sum_list(borrow numbers as List<Number>) -> Number then
+    bind total to 0
+    for each num in borrow numbers then
+        set total to total + num
+    end
+    yield total
+end
+
+# Pattern: Building new collection (consumes input)
+chant filter_positive(numbers as List<Number>) -> List<Number> then
+    bind result to []
+    for each num in numbers then
+        should num > 0 then
+            result.push(num)
+        end
+    end
+    yield result  # Transfer ownership of result
+end
+
+# Pattern: In-place transformation (mutable borrow)
+chant negate_all(borrow mut numbers as List<Number>) then
+    for each i in range(0, numbers.length()) then
+        set numbers[i] to -numbers[i]
+    end
+end
+
+# Pattern: Combining collections
+chant merge(first as List<Number>, second as List<Number>) -> List<Number> then
+    bind result to first  # Take ownership of first
+    for each item in second then
+        result.push(item)
+    end
+    yield result
+end
+
+# Working with maps
+form Person with
+    name as Text
+    age as Number
+end
+
+chant add_person(borrow mut people as Map, name as Text, person as Person) then
+    # Map takes ownership of person
+    people.insert(name, person)
+end
+
+chant get_age(borrow people as Map, name as Text) -> Maybe<Number> then
+    match people.get(name) with
+        when Present(person) then
+            yield Present(person.age)
+        when Absent then
+            yield Absent
+    end
+end
+
+# Examples with lists
+bind nums to [1, -2, 3, -4, 5]
+VGA.write("Original: " + to_text(nums))
+
+# Borrow for computation
+bind sum to sum_list(borrow nums)
+VGA.write("Sum: " + to_text(sum))
+
+# In-place modification
+negate_all(borrow mut nums)
+VGA.write("Negated: " + to_text(nums))
+
+# Consume to create new collection
+bind positive_only to filter_positive(nums)  # nums moved
+VGA.write("Positive: " + to_text(positive_only))
+
+# Merge collections
+bind more_nums to [10, 20, 30]
+bind merged to merge(positive_only, more_nums)  # Both moved
+VGA.write("Merged: " + to_text(merged))
+
+# Working with maps
+weave people as Map
+
+add_person(borrow mut people, "Alice", Person { name: "Alice", age: 30 })
+add_person(borrow mut people, "Bob", Person { name: "Bob", age: 25 })
+
+match get_age(borrow people, "Alice") with
+    when Present(age) then
+        VGA.write("Alice is " + to_text(age) + " years old")
+    when Absent then
+        VGA.write("Alice not found")
+end

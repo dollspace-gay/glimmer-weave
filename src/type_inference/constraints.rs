@@ -68,13 +68,13 @@ impl ConstraintGenerator {
     pub fn infer_expr(&mut self, expr: &AstNode) -> InferType {
         match expr {
             // Literals have known types
-            AstNode::Number(_) => InferType::Concrete(Type::Number),
-            AstNode::Text(_) => InferType::Concrete(Type::Text),
-            AstNode::Truth(_) => InferType::Concrete(Type::Truth),
-            AstNode::Nothing => InferType::Concrete(Type::Nothing),
+            AstNode::Number { .. } => InferType::Concrete(Type::Number),
+            AstNode::Text { .. } => InferType::Concrete(Type::Text),
+            AstNode::Truth { .. } => InferType::Concrete(Type::Truth),
+            AstNode::Nothing { .. } => InferType::Concrete(Type::Nothing),
 
             // Variables: lookup in environment and instantiate
-            AstNode::Ident(name) => {
+            AstNode::Ident { name, .. } => {
                 if let Some(scheme) = self.lookup(name).cloned() {
                     scheme.specialize(&mut self.next_var)
                 } else {
@@ -85,7 +85,7 @@ impl ConstraintGenerator {
             }
 
             // Lists: infer element types and require homogeneity
-            AstNode::List(elements) => {
+            AstNode::List { elements, .. } => {
                 if elements.is_empty() {
                     // Empty list: List<α> for some fresh α
                     let elem_ty = InferType::Var(self.fresh_var());
@@ -115,7 +115,7 @@ impl ConstraintGenerator {
             }
 
             // Binary operations
-            AstNode::BinaryOp { op, left, right } => {
+            AstNode::BinaryOp { op, left, right, .. } => {
                 use crate::ast::BinaryOperator;
                 let left_ty = self.infer_expr(left);
                 let right_ty = self.infer_expr(right);
@@ -169,7 +169,7 @@ impl ConstraintGenerator {
             }
 
             // Unary operations
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 use crate::ast::UnaryOperator;
                 let operand_ty = self.infer_expr(operand);
 
@@ -198,6 +198,7 @@ impl ConstraintGenerator {
                 condition,
                 then_branch,
                 else_branch,
+                ..
             } => {
                 let cond_ty = self.infer_expr(condition);
 
@@ -223,7 +224,7 @@ impl ConstraintGenerator {
             }
 
             // Function calls
-            AstNode::Call { callee, args, type_args: _ } => {
+            AstNode::Call { callee, args, .. } => {
                 let func_ty = self.infer_expr(callee);
 
                 // Infer argument types
@@ -240,7 +241,7 @@ impl ConstraintGenerator {
             }
 
             // Bind statements
-            AstNode::BindStmt { name, value, typ: _ } => {
+            AstNode::BindStmt { name, value, .. } => {
                 let value_ty = self.infer_expr(value);
 
                 // Add to environment as monomorphic (will generalize later)
@@ -250,7 +251,7 @@ impl ConstraintGenerator {
             }
 
             // Block: infer each statement, return last
-            AstNode::Block(statements) => {
+            AstNode::Block { statements, .. } => {
                 let mut last_ty = InferType::Concrete(Type::Nothing);
 
                 for stmt in statements {

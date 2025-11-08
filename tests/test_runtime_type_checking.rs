@@ -6,7 +6,7 @@ use glimmer_weave::eval::{RuntimeError, Value};
 
 fn run_program(source: &str) -> Result<Value, RuntimeError> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| RuntimeError::Custom(format!("Parse error: {:?}", e)))?;

@@ -9,11 +9,12 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use crate::ast::*;
-use crate::token::Token;
+use crate::token::{Token, PositionedToken};
+use crate::source_location::SourceSpan;
 
 /// Parser for Glimmer-Weave source code
 pub struct Parser {
-    tokens: Vec<Token>,
+    tokens: Vec<PositionedToken>,
     position: usize,
 }
 
@@ -27,14 +28,21 @@ pub struct ParseError {
 pub type ParseResult<T> = Result<T, ParseError>;
 
 impl Parser {
-    /// Create a new parser from a vector of tokens
-    pub fn new(tokens: Vec<Token>) -> Self {
+    /// Create a new parser from a vector of positioned tokens
+    pub fn new(tokens: Vec<PositionedToken>) -> Self {
         Parser { tokens, position: 0 }
     }
 
     /// Get current token
     fn current(&self) -> &Token {
-        self.tokens.get(self.position).unwrap_or(&Token::Eof)
+        self.tokens.get(self.position).map(|pt| &pt.token).unwrap_or(&Token::Eof)
+    }
+
+    /// Get current token's span
+    fn current_span(&self) -> SourceSpan {
+        self.tokens.get(self.position)
+            .map(|pt| pt.span.to_source_span())
+            .unwrap_or_else(SourceSpan::unknown)
     }
 
     /// Peek at next token
@@ -43,7 +51,7 @@ impl Parser {
     /// and disambiguation of ambiguous syntax (e.g., generics vs comparison).
     #[allow(dead_code)]
     fn peek(&self) -> &Token {
-        self.tokens.get(self.position + 1).unwrap_or(&Token::Eof)
+        self.tokens.get(self.position + 1).map(|pt| &pt.token).unwrap_or(&Token::Eof)
     }
 
     /// Advance to next token
@@ -136,13 +144,17 @@ impl Parser {
             _ => {
                 // Try expression statement
                 let expr = self.parse_expression()?;
-                Ok(AstNode::ExprStmt(Box::new(expr)))
+                Ok(AstNode::ExprStmt {
+                    expr: Box::new(expr),
+                    span: self.current_span(),
+                })
             }
         }
     }
 
     /// Parse: bind x to 42  OR  bind x: Number to 42
     fn parse_bind(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Bind)?;
 
         let name = match self.current() {
@@ -167,11 +179,12 @@ impl Parser {
 
         let value = Box::new(self.parse_expression()?);
 
-        Ok(AstNode::BindStmt { name, typ, value })
+        Ok(AstNode::BindStmt { name, typ, value, span })
     }
 
     /// Parse: weave counter as 0  OR  weave counter: Number as 0
     fn parse_weave(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Weave)?;
 
         let name = match self.current() {
@@ -196,11 +209,12 @@ impl Parser {
 
         let value = Box::new(self.parse_expression()?);
 
-        Ok(AstNode::WeaveStmt { name, typ, value })
+        Ok(AstNode::WeaveStmt { name, typ, value, span })
     }
 
     /// Parse: set counter to 10
     fn parse_set(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Set)?;
 
         let name = match self.current() {
@@ -218,11 +232,12 @@ impl Parser {
 
         let value = Box::new(self.parse_expression()?);
 
-        Ok(AstNode::SetStmt { name, value })
+        Ok(AstNode::SetStmt { name, value, span })
     }
 
     /// Parse: should x > 5 then ... otherwise ... end
     fn parse_if(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Should)?;
 
         let condition = Box::new(self.parse_expression()?);
@@ -254,11 +269,12 @@ impl Parser {
             condition,
             then_branch,
             else_branch,
-        })
+            span })
     }
 
     /// Parse: for each x in list then ... end
     fn parse_for(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::For)?;
         self.expect(Token::Each)?;
 
@@ -292,11 +308,13 @@ impl Parser {
             variable,
             iterable,
             body,
+            span,
         })
     }
 
     /// Parse: whilst condition then ... end
     fn parse_while(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Whilst)?;
 
         let condition = Box::new(self.parse_expression()?);
@@ -315,7 +333,7 @@ impl Parser {
         Ok(AstNode::WhileStmt {
             condition,
             body,
-        })
+            span })
     }
 
     /// Parse: chant greet(name) then ... end
@@ -396,6 +414,8 @@ impl Parser {
                     name: param_name,
                     typ: param_type,
                     is_variadic,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 });
 
                 // If this is a variadic parameter, it must be the last one
@@ -441,6 +461,8 @@ impl Parser {
             params,
             return_type,
             body,
+            lifetime_params: Vec::new(),
+            span: self.current_span(),
         })
     }
 
@@ -527,6 +549,7 @@ impl Parser {
             name,
             type_params,
             fields,
+            span: self.current_span(),
         })
     }
 
@@ -622,6 +645,8 @@ impl Parser {
                         name: field_name,
                         typ: Some(field_type),
                         is_variadic: false,
+                        borrow_mode: BorrowMode::Owned,
+                        lifetime: None,
                     });
 
                     // Handle comma separator
@@ -660,6 +685,7 @@ impl Parser {
             name,
             type_params,
             variants,
+            span: self.current_span(),
         })
     }
 
@@ -743,6 +769,8 @@ impl Parser {
                         name: "self".to_string(),
                         typ: None, // self type is inferred
                         is_variadic: false,
+                        borrow_mode: BorrowMode::Owned,
+                        lifetime: None,
                     });
                     self.advance();
                 }
@@ -785,6 +813,8 @@ impl Parser {
                     name: param_name,
                     typ,
                     is_variadic: false,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 });
             }
 
@@ -813,6 +843,7 @@ impl Parser {
             name,
             type_params,
             methods,
+            span: self.current_span(),
         })
     }
 
@@ -878,28 +909,32 @@ impl Parser {
             type_args,
             target_type,
             methods,
+            span: self.current_span(),
         })
     }
 
     /// Parse: yield result
     fn parse_yield(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Yield)?;
 
         let value = Box::new(self.parse_expression()?);
 
-        Ok(AstNode::YieldStmt { value })
+        Ok(AstNode::YieldStmt { value, span })
     }
 
     /// Parse: break
     fn parse_break(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Break)?;
-        Ok(AstNode::Break)
+        Ok(AstNode::Break { span })
     }
 
     /// Parse: continue
     fn parse_continue(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Continue)?;
-        Ok(AstNode::Continue)
+        Ok(AstNode::Continue { span })
     }
 
     /// Parse: match x with when pattern then ... end
@@ -948,7 +983,7 @@ impl Parser {
 
         self.expect(Token::End)?;
 
-        Ok(AstNode::MatchStmt { value, arms })
+        Ok(AstNode::MatchStmt { value, arms, span: self.current_span() })
     }
 
     /// Parse pattern for match
@@ -956,18 +991,21 @@ impl Parser {
         match self.current() {
             Token::Number(n) => {
                 let val = *n;
+                let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Number(val)))
+                Ok(Pattern::Literal(AstNode::Number { value: val, span }))
             }
             Token::Text(s) => {
                 let val = s.clone();
+                let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Text(val)))
+                Ok(Pattern::Literal(AstNode::Text { value: val, span }))
             }
             Token::Truth(b) => {
                 let val = *b;
+                let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(AstNode::Truth(val)))
+                Ok(Pattern::Literal(AstNode::Truth { value: val, span }))
             }
             Token::Ident(name) => {
                 let n = name.clone();
@@ -1012,14 +1050,15 @@ impl Parser {
                         Ok(Pattern::Enum {
                             variant: n,
                             inner: Some(Box::new(Pattern::Literal(
-                                AstNode::List(
-                                    inner_patterns.into_iter()
+                                AstNode::List {
+                                    elements: inner_patterns.into_iter()
                                         .map(|p| match p {
-                                            Pattern::Ident(name) => AstNode::Ident(name),
-                                            _ => AstNode::Nothing, // Placeholder
+                                            Pattern::Ident(name) => AstNode::Ident { name, span: SourceSpan::unknown() },
+                                            _ => AstNode::Nothing { span: SourceSpan::unknown() }, // Placeholder
                                         })
-                                        .collect()
-                                )
+                                        .collect(),
+                                    span: SourceSpan::unknown(),
+                                }
                             ))),
                         })
                     }
@@ -1121,11 +1160,12 @@ impl Parser {
 
         self.expect(Token::End)?;
 
-        Ok(AstNode::AttemptStmt { body, handlers })
+        Ok(AstNode::AttemptStmt { body, handlers, span: self.current_span() })
     }
 
     /// Parse: request VGA.write with justification "message"
     fn parse_request(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Request)?;
 
         let capability = Box::new(self.parse_expression()?);
@@ -1147,6 +1187,7 @@ impl Parser {
         Ok(AstNode::RequestStmt {
             capability,
             justification,
+            span,
         })
     }
 
@@ -1178,7 +1219,7 @@ impl Parser {
             let stmt = self.parse_statement()?;
 
             // If it's an Export statement, extract the items
-            if let AstNode::Export { items } = &stmt {
+            if let AstNode::Export { items, .. } = &stmt {
                 exports.extend(items.clone());
             }
 
@@ -1192,6 +1233,7 @@ impl Parser {
             name,
             body,
             exports,
+            span: self.current_span(),
         })
     }
 
@@ -1311,6 +1353,7 @@ impl Parser {
             path,
             items,
             alias,
+            span: self.current_span(),
         })
     }
 
@@ -1348,7 +1391,7 @@ impl Parser {
             });
         }
 
-        Ok(AstNode::Export { items })
+        Ok(AstNode::Export { items, span: self.current_span() })
     }
 
     /// Parse an expression
@@ -1361,6 +1404,7 @@ impl Parser {
         let mut expr = self.parse_logical_or()?;
 
         if matches!(self.current(), Token::Pipe) {
+            let span = self.current_span();
             let mut stages = Vec::new();
             stages.push(expr);
 
@@ -1368,7 +1412,7 @@ impl Parser {
                 stages.push(self.parse_logical_or()?);
             }
 
-            expr = AstNode::Pipeline { stages };
+            expr = AstNode::Pipeline { stages, span };
         }
 
         Ok(expr)
@@ -1379,12 +1423,13 @@ impl Parser {
         let mut left = self.parse_logical_and()?;
 
         while self.match_token(Token::Or) {
+            let span = self.current_span();
             let right = self.parse_logical_and()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 op: BinaryOperator::Or,
                 right: Box::new(right),
-            };
+                span };
         }
 
         Ok(left)
@@ -1395,12 +1440,13 @@ impl Parser {
         let mut left = self.parse_comparison()?;
 
         while self.match_token(Token::And) {
+            let span = self.current_span();
             let right = self.parse_comparison()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 op: BinaryOperator::And,
                 right: Box::new(right),
-            };
+                span };
         }
 
         Ok(left)
@@ -1421,13 +1467,14 @@ impl Parser {
                 _ => break,
             };
 
+            let span = self.current_span();
             self.advance();
             let right = self.parse_additive()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
-            };
+                span };
         }
 
         Ok(left)
@@ -1444,13 +1491,14 @@ impl Parser {
                 _ => break,
             };
 
+            let span = self.current_span();
             self.advance();
             let right = self.parse_multiplicative()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
-            };
+                span };
         }
 
         Ok(left)
@@ -1468,13 +1516,14 @@ impl Parser {
                 _ => break,
             };
 
+            let span = self.current_span();
             self.advance();
             let right = self.parse_unary()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
-            };
+                span };
         }
 
         Ok(left)
@@ -1484,17 +1533,21 @@ impl Parser {
     fn parse_unary(&mut self) -> ParseResult<AstNode> {
         match self.current() {
             Token::Not => {
+                let span = self.current_span();
                 self.advance();
                 Ok(AstNode::UnaryOp {
                     op: UnaryOperator::Not,
                     operand: Box::new(self.parse_unary()?),
+                    span,
                 })
             }
             Token::Minus => {
+                let span = self.current_span();
                 self.advance();
                 Ok(AstNode::UnaryOp {
                     op: UnaryOperator::Negate,
                     operand: Box::new(self.parse_unary()?),
+                    span,
                 })
             }
             _ => self.parse_postfix(),
@@ -1508,6 +1561,7 @@ impl Parser {
         loop {
             match self.current() {
                 Token::Dot => {
+                    let span = self.current_span();
                     self.advance();
                     let field = match self.current() {
                         Token::Ident(f) => f.clone(),
@@ -1522,6 +1576,7 @@ impl Parser {
                     expr = AstNode::FieldAccess {
                         object: Box::new(expr),
                         field,
+                        span,
                     };
                 }
                 Token::LeftAngle => {
@@ -1562,11 +1617,13 @@ impl Parser {
                                 callee: Box::new(expr),
                                 type_args,
                                 args,
+                                span: self.current_span(),
                             };
                         }
                         Token::LeftBrace => {
                             // Generic struct literal: Box<Number> { value: 42 }
-                            if let AstNode::Ident(struct_name) = expr {
+                            if let AstNode::Ident { name: struct_name, .. } = expr {
+                                let span = self.current_span();
                                 self.advance(); // consume {
 
                                 let mut fields = Vec::new();
@@ -1597,6 +1654,7 @@ impl Parser {
                                     struct_name,
                                     type_args,
                                     fields,
+                                    span,
                                 };
                             } else {
                                 return Err(ParseError {
@@ -1615,6 +1673,7 @@ impl Parser {
                 }
                 Token::LeftParen => {
                     // Non-generic function call
+                    let span = self.current_span();
                     self.advance();
                     let mut args = Vec::new();
 
@@ -1632,21 +1691,25 @@ impl Parser {
                         callee: Box::new(expr),
                         type_args: Vec::new(), // No type arguments
                         args,
+                        span,
                     };
                 }
                 Token::LeftBracket => {
+                    let span = self.current_span();
                     self.advance();
                     let index = Box::new(self.parse_expression()?);
                     self.expect(Token::RightBracket)?;
                     expr = AstNode::IndexAccess {
                         object: Box::new(expr),
                         index,
+                        span,
                     };
                 }
                 Token::LeftBrace => {
                     // Struct literal: Person { name: "Alice", age: 30 }
                     // Only valid if expr is an identifier
-                    if let AstNode::Ident(struct_name) = expr {
+                    if let AstNode::Ident { name: struct_name, .. } = expr {
+                        let span = self.current_span();
                         self.advance(); // consume '{'
 
                         let mut fields = Vec::new();
@@ -1680,6 +1743,7 @@ impl Parser {
                             struct_name,
                             type_args: Vec::new(), // No type arguments
                             fields,
+                            span,
                         };
                     } else {
                         // Not a struct literal, could be a map literal
@@ -1688,9 +1752,11 @@ impl Parser {
                 }
                 Token::Question => {
                     // Try operator: expr?
+                    let span = self.current_span();
                     self.advance();
                     expr = AstNode::Try {
                         expr: Box::new(expr),
+                        span,
                     };
                 }
                 _ => break,
@@ -1704,24 +1770,29 @@ impl Parser {
     fn parse_primary(&mut self) -> ParseResult<AstNode> {
         match self.current().clone() {
             Token::Number(n) => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Number(n))
+                Ok(AstNode::Number { value: n, span })
             }
             Token::Text(s) => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Text(s))
+                Ok(AstNode::Text { value: s, span })
             }
             Token::Truth(b) => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Truth(b))
+                Ok(AstNode::Truth { value: b, span })
             }
             Token::Nothing => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Nothing)
+                Ok(AstNode::Nothing { span })
             }
             Token::Ident(name) => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Ident(name))
+                Ok(AstNode::Ident { name, span })
             }
             Token::LeftParen => {
                 self.advance();
@@ -1736,29 +1807,33 @@ impl Parser {
 
             // Enum constructors
             Token::Triumph => {
+                let span = self.current_span();
                 self.advance();
                 self.expect(Token::LeftParen)?;
                 let value = Box::new(self.parse_expression()?);
                 self.expect(Token::RightParen)?;
-                Ok(AstNode::Triumph(value))
+                Ok(AstNode::Triumph { value, span })
             }
             Token::Mishap => {
+                let span = self.current_span();
                 self.advance();
                 self.expect(Token::LeftParen)?;
                 let value = Box::new(self.parse_expression()?);
                 self.expect(Token::RightParen)?;
-                Ok(AstNode::Mishap(value))
+                Ok(AstNode::Mishap { value, span })
             }
             Token::Present => {
+                let span = self.current_span();
                 self.advance();
                 self.expect(Token::LeftParen)?;
                 let value = Box::new(self.parse_expression()?);
                 self.expect(Token::RightParen)?;
-                Ok(AstNode::Present(value))
+                Ok(AstNode::Present { value, span })
             }
             Token::Absent => {
+                let span = self.current_span();
                 self.advance();
-                Ok(AstNode::Absent)
+                Ok(AstNode::Absent { span })
             }
 
             // Capability request can be used as an expression
@@ -1773,6 +1848,7 @@ impl Parser {
 
     /// Parse list: [1, 2, 3]
     fn parse_list(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::LeftBracket)?;
 
         let mut elements = Vec::new();
@@ -1786,11 +1862,12 @@ impl Parser {
         }
 
         self.expect(Token::RightBracket)?;
-        Ok(AstNode::List(elements))
+        Ok(AstNode::List { elements, span })
     }
 
     /// Parse map: {name: "Elara", age: 42}
     fn parse_map(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::LeftBrace)?;
         self.skip_newlines();  // Skip newlines after opening brace
 
@@ -1822,11 +1899,12 @@ impl Parser {
 
         self.skip_newlines();  // Skip newlines before closing brace
         self.expect(Token::RightBrace)?;
-        Ok(AstNode::Map(pairs))
+        Ok(AstNode::Map { entries: pairs, span })
     }
 
     /// Parse seek expression
     fn parse_seek(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Seek)?;
         self.expect(Token::Where)?;
 
@@ -1868,11 +1946,12 @@ impl Parser {
             }
         }
 
-        Ok(AstNode::SeekExpr { conditions })
+        Ok(AstNode::SeekExpr { conditions, span })
     }
 
     /// Parse range: range(1, 10)
     fn parse_range(&mut self) -> ParseResult<AstNode> {
+        let span = self.current_span();
         self.expect(Token::Range)?;
         self.expect(Token::LeftParen)?;
 
@@ -1882,7 +1961,7 @@ impl Parser {
 
         self.expect(Token::RightParen)?;
 
-        Ok(AstNode::Range { start, end })
+        Ok(AstNode::Range { start, end, span })
     }
 
     /// Parse type annotation: Number, Text, List<Number>, Map, etc.
@@ -1946,7 +2025,7 @@ mod tests {
 
     fn parse_single_statement(source: &str) -> Result<AstNode, ParseError> {
         let mut lexer = crate::lexer::Lexer::new(source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
         parser.parse_statement()
     }
@@ -1967,7 +2046,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse module declaration: {:?}", result);
 
-        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+        if let Ok(AstNode::ModuleDecl { name, body, exports, .. }) = result {
             assert_eq!(name, "Math");
             assert_eq!(body.len(), 2); // chant def + export
             assert_eq!(exports.len(), 1);
@@ -1987,7 +2066,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse empty module: {:?}", result);
 
-        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+        if let Ok(AstNode::ModuleDecl { name, body, exports, .. }) = result {
             assert_eq!(name, "Empty");
             assert_eq!(body.len(), 0);
             assert_eq!(exports.len(), 0);
@@ -2005,7 +2084,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse summon statement: {:?}", result);
 
-        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+        if let Ok(AstNode::Import { module_name, path, items, alias, .. }) = result {
             assert_eq!(module_name, "Math"); // Module name from "summon Math"
             assert_eq!(path, "std/math.gw");
             assert!(items.is_none());
@@ -2022,7 +2101,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse summon with alias: {:?}", result);
 
-        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+        if let Ok(AstNode::Import { module_name, path, items, alias, .. }) = result {
             assert_eq!(module_name, "Math"); // Module name from "summon Math"
             assert_eq!(path, "std/math.gw");
             assert!(items.is_none());
@@ -2039,7 +2118,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse gather statement: {:?}", result);
 
-        if let Ok(AstNode::Import { module_name, path, items, alias }) = result {
+        if let Ok(AstNode::Import { module_name, path, items, alias, .. }) = result {
             assert_eq!(module_name, "Math");
             assert_eq!(path, "Math.gw");
             assert_eq!(items, Some(vec!["sqrt".to_string(), "pow".to_string()]));
@@ -2058,7 +2137,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse export: {:?}", result);
 
-        if let Ok(AstNode::Export { items }) = result {
+        if let Ok(AstNode::Export { items, .. }) = result {
             assert_eq!(items.len(), 1);
             assert_eq!(items[0], "sqrt");
         } else {
@@ -2073,7 +2152,7 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse export: {:?}", result);
 
-        if let Ok(AstNode::Export { items }) = result {
+        if let Ok(AstNode::Export { items, .. }) = result {
             assert_eq!(items.len(), 3);
             assert_eq!(items, vec!["sqrt".to_string(), "pow".to_string(), "abs".to_string()]);
         } else {
@@ -2106,20 +2185,20 @@ end
         let result = parse_single_statement(source);
         assert!(result.is_ok(), "Failed to parse complete module: {:?}", result);
 
-        if let Ok(AstNode::ModuleDecl { name, body, exports }) = result {
+        if let Ok(AstNode::ModuleDecl { name, body, exports, .. }) = result {
             assert_eq!(name, "Math");
             assert_eq!(body.len(), 4); // 3 functions + 1 export statement
             assert_eq!(exports, vec!["sqrt".to_string(), "pow".to_string()]);
 
             // Verify first function is sqrt
-            if let AstNode::ChantDef { name, .. } = &body[0] {
+            if let AstNode::ChantDef { name, ..  } = &body[0] {
                 assert_eq!(name, "sqrt");
             } else {
                 panic!("Expected ChantDef for sqrt");
             }
 
             // Verify export statement is last
-            if let AstNode::Export { items } = &body[3] {
+            if let AstNode::Export { items, .. } = &body[3] {
                 assert_eq!(items, &vec!["sqrt".to_string(), "pow".to_string()]);
             } else {
                 panic!("Expected Export statement");

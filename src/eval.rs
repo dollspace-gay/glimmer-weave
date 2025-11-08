@@ -590,7 +590,7 @@ impl Evaluator {
 
                 // Get function name if callee is an Ident (for TCO detection)
                 let func_name = match callee_node {
-                    AstNode::Ident(name) => Some(name.clone()),
+                    AstNode::Ident { name, .. } => Some(name.clone()),
                     _ => None,
                 };
 
@@ -696,13 +696,13 @@ impl Evaluator {
     pub fn eval_node(&mut self, node: &AstNode) -> Result<Value, RuntimeError> {
         match node {
             // === Literals ===
-            AstNode::Number(n) => Ok(Value::Number(*n)),
-            AstNode::Text(s) => Ok(Value::Text(s.clone())),
-            AstNode::Truth(b) => Ok(Value::Truth(*b)),
-            AstNode::Nothing => Ok(Value::Nothing),
+            AstNode::Number { value: n, .. } => Ok(Value::Number(*n)),
+            AstNode::Text { value: s, .. } => Ok(Value::Text(s.clone())),
+            AstNode::Truth { value: b, .. } => Ok(Value::Truth(*b)),
+            AstNode::Nothing { .. } => Ok(Value::Nothing),
 
             // === Outcome constructors ===
-            AstNode::Triumph(value) => {
+            AstNode::Triumph { value, .. } => {
                 let inner = self.eval_node(value)?;
                 Ok(Value::Outcome {
                     success: true,
@@ -710,7 +710,7 @@ impl Evaluator {
                 })
             }
 
-            AstNode::Mishap(value) => {
+            AstNode::Mishap { value, .. } => {
                 let inner = self.eval_node(value)?;
                 Ok(Value::Outcome {
                     success: false,
@@ -719,7 +719,7 @@ impl Evaluator {
             }
 
             // === Maybe constructors ===
-            AstNode::Present(value) => {
+            AstNode::Present { value, .. } => {
                 let inner = self.eval_node(value)?;
                 Ok(Value::Maybe {
                     present: true,
@@ -727,16 +727,16 @@ impl Evaluator {
                 })
             }
 
-            AstNode::Absent => Ok(Value::Maybe {
+            AstNode::Absent { .. } => Ok(Value::Maybe {
                 present: false,
                 value: None,
             }),
 
             // === Variables ===
-            AstNode::Ident(name) => self.environment.get(name),
+            AstNode::Ident { name, .. } => self.environment.get(name),
 
             // === Lists ===
-            AstNode::List(elements) => {
+            AstNode::List { elements, .. } => {
                 let mut values = Vec::new();
                 for elem in elements {
                     values.push(self.eval_node(elem)?);
@@ -745,9 +745,9 @@ impl Evaluator {
             }
 
             // === Maps ===
-            AstNode::Map(pairs) => {
+            AstNode::Map { entries, .. } => {
                 let mut map = BTreeMap::new();
-                for (key, value_node) in pairs {
+                for (key, value_node) in entries {
                     let value = self.eval_node(value_node)?;
                     map.insert(key.clone(), value);
                 }
@@ -757,7 +757,7 @@ impl Evaluator {
             // === Statements ===
 
             // bind x to 42
-            AstNode::BindStmt { name, typ: _, value } => {
+            AstNode::BindStmt { name, typ: _, value, .. } => {
                 // Type annotations are checked by semantic analyzer, ignored at runtime
                 let val = self.eval_node(value)?;
                 self.environment.define(name.clone(), val.clone());
@@ -765,7 +765,7 @@ impl Evaluator {
             }
 
             // weave counter as 0
-            AstNode::WeaveStmt { name, typ: _, value } => {
+            AstNode::WeaveStmt { name, typ: _, value, .. } => {
                 // Type annotations are checked by semantic analyzer, ignored at runtime
                 let val = self.eval_node(value)?;
                 self.environment.define_mut(name.clone(), val.clone());
@@ -773,14 +773,14 @@ impl Evaluator {
             }
 
             // set counter to 10
-            AstNode::SetStmt { name, value } => {
+            AstNode::SetStmt { name, value, .. } => {
                 let val = self.eval_node(value)?;
                 self.environment.set(name, val.clone())?;
                 Ok(val)
             }
 
             // should condition then ... otherwise ... end
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 let cond_val = self.eval_node(condition)?;
                 if cond_val.is_truthy() {
                     self.eval(then_branch)
@@ -792,7 +792,7 @@ impl Evaluator {
             }
 
             // for each x in list then ... end
-            AstNode::ForStmt { variable, iterable, body } => {
+            AstNode::ForStmt { variable, iterable, body, .. } => {
                 let iter_val = self.eval_node(iterable)?;
 
                 let items = match iter_val {
@@ -853,7 +853,7 @@ impl Evaluator {
             }
 
             // whilst condition then ... end
-            AstNode::WhileStmt { condition, body } => {
+            AstNode::WhileStmt { condition, body, .. } => {
                 let mut result = Value::Nothing;
                 loop {
                     let cond_val = self.eval_node(condition)?;
@@ -920,7 +920,7 @@ impl Evaluator {
                 Ok(struct_def)
             }
 
-            AstNode::VariantDef { name, type_params, variants } => {
+            AstNode::VariantDef { name, type_params, variants, .. } => {
                 // Phase 1b/3: Create enum definition and register variant constructors
 
                 // Create and store enum definition
@@ -958,7 +958,7 @@ impl Evaluator {
                 Ok(variant_def)
             }
 
-            AstNode::AspectDef { name, type_params, methods } => {
+            AstNode::AspectDef { name, type_params, methods, .. } => {
                 // Phase 3: Store trait definition in the runtime registry
                 let trait_def = TraitDefinition {
                     name: name.clone(),
@@ -969,7 +969,7 @@ impl Evaluator {
                 Ok(Value::Nothing)
             }
 
-            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods } => {
+            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods, .. } => {
                 // Phase 3: Store trait implementation in the runtime registry
 
                 // Create implementation key
@@ -1050,11 +1050,11 @@ impl Evaluator {
             }
 
             // yield result
-            AstNode::YieldStmt { value } => {
+            AstNode::YieldStmt { value, .. } => {
                 // Check if we're yielding a call (potential tail call)
                 if let AstNode::Call { callee, args, .. } = value.as_ref() {
                     // Check if callee is an identifier
-                    if let AstNode::Ident(func_name) = callee.as_ref() {
+                    if let AstNode::Ident { name: func_name, .. } = callee.as_ref() {
                         // Check if it's a tail call to the current function
                         if let Ok(Value::Text(current_func)) = self.environment.get("__current_function__") {
                             if func_name == &current_func {
@@ -1079,16 +1079,16 @@ impl Evaluator {
             }
 
             // === Loop Control Flow ===
-            AstNode::Break => {
+            AstNode::Break { .. } => {
                 Err(RuntimeError::BreakOutsideLoop)
             }
 
-            AstNode::Continue => {
+            AstNode::Continue { .. } => {
                 Err(RuntimeError::ContinueOutsideLoop)
             }
 
             // Try operator: expr?
-            AstNode::Try { expr } => {
+            AstNode::Try { expr, .. } => {
                 let value = self.eval_node(expr)?;
 
                 // Check if value is an Outcome
@@ -1116,22 +1116,22 @@ impl Evaluator {
             }
 
             // === Binary Operations ===
-            AstNode::BinaryOp { left, op, right } => {
+            AstNode::BinaryOp { left, op, right, .. } => {
                 let left_val = self.eval_node(left)?;
                 let right_val = self.eval_node(right)?;
                 self.eval_binary_op(&left_val, *op, &right_val)
             }
 
             // === Unary Operations ===
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 let val = self.eval_node(operand)?;
                 self.eval_unary_op(*op, &val)
             }
 
             // === Function Calls ===
-            AstNode::Call { callee, args, type_args } => {
+            AstNode::Call { callee, args, type_args, .. } => {
                 // Phase 3: Check if this is a trait method call (object.method(...))
-                if let AstNode::FieldAccess { object, field } = callee.as_ref() {
+                if let AstNode::FieldAccess { object, field, .. } = callee.as_ref() {
                     // Evaluate the object (the 'self' value)
                     let self_value = self.eval_node(object)?;
                     let self_type = self.value_type_string(&self_value);
@@ -1209,7 +1209,7 @@ impl Evaluator {
             }
 
             // === Field Access ===
-            AstNode::FieldAccess { object, field } => {
+            AstNode::FieldAccess { object, field, .. } => {
                 let obj = self.eval_node(object)?;
                 match obj {
                     Value::Map(ref map) => {
@@ -1236,7 +1236,7 @@ impl Evaluator {
             }
 
             // === Index Access ===
-            AstNode::IndexAccess { object, index } => {
+            AstNode::IndexAccess { object, index, .. } => {
                 let obj = self.eval_node(object)?;
                 let idx = self.eval_node(index)?;
 
@@ -1268,7 +1268,7 @@ impl Evaluator {
             }
 
             // === Range ===
-            AstNode::Range { start, end } => {
+            AstNode::Range { start, end, .. } => {
                 let start_val = self.eval_node(start)?;
                 let end_val = self.eval_node(end)?;
 
@@ -1296,10 +1296,10 @@ impl Evaluator {
             }
 
             // === Expression Statement ===
-            AstNode::ExprStmt(expr) => self.eval_node(expr),
+            AstNode::ExprStmt { expr, .. } => self.eval_node(expr),
 
             // === Block ===
-            AstNode::Block(statements) => {
+            AstNode::Block { statements, .. } => {
                 self.environment.push_scope();
                 let result = self.eval(statements);
                 self.environment.pop_scope();
@@ -1307,7 +1307,7 @@ impl Evaluator {
             }
 
             // === Pattern Matching ===
-            AstNode::MatchStmt { value, arms } => {
+            AstNode::MatchStmt { value, arms, .. } => {
                 // Evaluate the value to match against
                 let match_value = self.eval_node(value)?;
 
@@ -1338,7 +1338,7 @@ impl Evaluator {
                 // No pattern matched
                 Err(RuntimeError::Custom("No pattern matched".to_string()))
             }
-            AstNode::AttemptStmt { body, handlers } => {
+            AstNode::AttemptStmt { body, handlers, .. } => {
                 // Try to execute the body
                 let result = self.eval(body);
 
@@ -1371,7 +1371,7 @@ impl Evaluator {
                 // No handler matched - propagate the error
                 Err(error)
             }
-            AstNode::RequestStmt { capability, justification } => {
+            AstNode::RequestStmt { capability, justification, .. } => {
                 // Capability-based security: Request permission to access a resource
                 //
                 // This creates an unforgeable capability token that represents permission
@@ -1400,7 +1400,7 @@ impl Evaluator {
                     ],
                 })
             }
-            AstNode::Pipeline { stages } => {
+            AstNode::Pipeline { stages, .. } => {
                 // Pipeline: value | func1 | func2
                 // Equivalent to: func2(func1(value))
 
@@ -1416,7 +1416,7 @@ impl Evaluator {
                     // Each stage should be a function call or identifier
                     match stage {
                         // If it's a function call, prepend the current value as first argument
-                        AstNode::Call { callee, args, type_args } => {
+                        AstNode::Call { callee, args, type_args, .. } => {
                             // Evaluate the function
                             let func = self.eval_node(callee)?;
 
@@ -1430,7 +1430,7 @@ impl Evaluator {
                             current_value = self.call_value(func, all_args, callee, type_args)?;
                         }
                         // If it's just an identifier, call it with the current value
-                        AstNode::Ident(name) => {
+                        AstNode::Ident { name, .. } => {
                             let func = self.environment.get(name)?;
                             current_value = self.call_value(func, vec![current_value.clone()], stage, &[])?;
                         }
@@ -1449,7 +1449,7 @@ impl Evaluator {
             }
 
             // === Module System (Phase 4: Interpreter Support) ===
-            AstNode::ModuleDecl { name, body, exports } => {
+            AstNode::ModuleDecl { name, body, exports, .. } => {
                 // Create a new environment for the module
                 let mut module_env = Environment::new();
 
@@ -1491,7 +1491,7 @@ impl Evaluator {
                 Ok(result)
             }
 
-            AstNode::Import { module_name, path, items, alias } => {
+            AstNode::Import { module_name, path, items, alias, .. } => {
                 // Determine effective module name (alias takes precedence)
                 let effective_name = alias.as_ref().unwrap_or(module_name);
 
@@ -1573,14 +1573,14 @@ impl Evaluator {
                 Ok(Value::Nothing)
             }
 
-            AstNode::Export { items: _ } => {
+            AstNode::Export { items: _, .. } => {
                 // Export statements are handled during ModuleDecl evaluation
                 // This is a no-op in the interpreter
                 // Exports are tracked when the module is declared
                 Ok(Value::Nothing)
             }
 
-            AstNode::ModuleAccess { module, member } => {
+            AstNode::ModuleAccess { module, member, .. } => {
                 // Check if module is imported
                 if !self.imported_modules.contains_key(module) {
                     return Err(RuntimeError::Custom(format!(
@@ -1669,7 +1669,7 @@ impl Evaluator {
                             // Phase 2: Variant with fields - extract and bind them
                             if let Some(inner_pattern) = inner {
                                 // Check if this is a multi-field pattern (encoded as List)
-                                if let Pattern::Literal(AstNode::List(ref field_names)) = **inner_pattern {
+                                if let Pattern::Literal(AstNode::List { elements: ref field_names, .. }) = **inner_pattern {
                                     // Multiple fields - bind each one
                                     if field_names.len() != fields.len() {
                                         return Ok(None); // Field count mismatch
@@ -1677,7 +1677,7 @@ impl Evaluator {
 
                                     let mut bindings = Vec::new();
                                     for (name_node, field_value) in field_names.iter().zip(fields.iter()) {
-                                        if let AstNode::Ident(name) = name_node {
+                                        if let AstNode::Ident { name, .. } = name_node {
                                             bindings.push((name.clone(), field_value.clone()));
                                         }
                                     }
@@ -1870,14 +1870,14 @@ impl Evaluator {
     /// Convert AST node to string representation (for capability requests)
     fn node_to_string(&self, node: &AstNode) -> String {
         match node {
-            AstNode::Ident(name) => name.clone(),
-            AstNode::FieldAccess { object, field } => {
+            AstNode::Ident { name, .. } => name.clone(),
+            AstNode::FieldAccess { object, field, .. } => {
                 format!("{}.{}", self.node_to_string(object), field)
             }
-            AstNode::Number(n) => n.to_string(),
-            AstNode::Text(s) => s.clone(),
-            AstNode::Truth(b) => b.to_string(),
-            AstNode::Nothing => "nothing".to_string(),
+            AstNode::Number { value: n, .. } => n.to_string(),
+            AstNode::Text { value: s, .. } => s.clone(),
+            AstNode::Truth { value: b, .. } => b.to_string(),
+            AstNode::Nothing { .. } => "nothing".to_string(),
             _ => "<expression>".to_string(),
         }
     }
@@ -1902,6 +1902,14 @@ fn type_annotation_to_string_helper(ann: &TypeAnnotation) -> String {
         TypeAnnotation::Function { .. } => "Function".to_string(),
         TypeAnnotation::Optional(inner) => {
             alloc::format!("{}?", type_annotation_to_string_helper(inner))
+        }
+        TypeAnnotation::Borrowed { lifetime, inner, mutable } => {
+            let lifetime_str = lifetime
+                .as_ref()
+                .map(|l| alloc::format!("'{} ", l.name))
+                .unwrap_or_else(|| "".to_string());
+            let mut_str = if *mutable { "mut " } else { "" };
+            alloc::format!("&{}{}{}", lifetime_str, mut_str, type_annotation_to_string_helper(inner))
         }
     }
 }
@@ -1930,7 +1938,7 @@ mod tests {
 
     fn eval_program(source: &str) -> Result<Value, RuntimeError> {
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Parse error");
         let mut evaluator = Evaluator::new();
@@ -1939,7 +1947,7 @@ mod tests {
 
     fn eval_with_vm_helper(source: &str) -> Result<Value, RuntimeError> {
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Parse error");
         let mut evaluator = Evaluator::new();

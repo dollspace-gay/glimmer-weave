@@ -1,0 +1,98 @@
+# Example 25: Ownership Error Scenarios
+# Demonstrates common ownership errors and how to fix them
+
+# ERROR 1: Use after move
+chant demonstrate_use_after_move() then
+    bind data to [1, 2, 3]
+    bind moved to data
+
+    # ERROR: Cannot use data after move
+    # VGA.write(to_text(data))
+
+    # FIX: Use the moved value
+    VGA.write("Correct: " + to_text(moved))
+
+    # OR: Clone before moving
+    bind data2 to [4, 5, 6]
+    bind cloned to data2.replicate()
+    bind also_moved to data2  # Move original
+    VGA.write("Clone: " + to_text(cloned))
+    VGA.write("Moved: " + to_text(also_moved))
+end
+
+# ERROR 2: Multiple mutable borrows
+chant demonstrate_multiple_mut_borrows() then
+    bind numbers to [1, 2, 3]
+
+    # ERROR: Cannot have two mutable borrows
+    # bind ref1 to borrow mut numbers
+    # bind ref2 to borrow mut numbers
+
+    # FIX: Use borrows sequentially
+    bind ref1 to borrow mut numbers
+    ref1.push(4)
+    # ref1 no longer used, borrow ends
+
+    bind ref2 to borrow mut numbers
+    ref2.push(5)
+
+    VGA.write("Result: " + to_text(numbers))
+end
+
+# ERROR 3: Mutable borrow while shared borrow exists
+chant demonstrate_mixed_borrows() then
+    bind data to [10, 20, 30]
+
+    # ERROR: Cannot mutably borrow while shared borrow exists
+    # bind shared to borrow data
+    # bind mutable to borrow mut data
+
+    # FIX: Ensure shared borrow ends before mutable borrow
+    bind shared to borrow data
+    bind length to shared.length()
+    # shared no longer used, borrow ends
+
+    bind mutable to borrow mut data
+    mutable.push(40)
+
+    VGA.write("Length was: " + to_text(length))
+    VGA.write("Data now: " + to_text(data))
+end
+
+# ERROR 4: Returning reference to local variable
+# chant bad_reference() -> borrow Number then
+#     bind local to 42
+#     yield borrow local  # ERROR: local doesn't live long enough
+# end
+
+# FIX: Return owned value instead
+chant good_reference() -> Number then
+    bind local to 42
+    yield local  # OK: ownership transferred
+end
+
+# ERROR 5: Modifying while borrowed
+chant demonstrate_modify_while_borrowed() then
+    bind numbers to [1, 2, 3]
+
+    # ERROR: Cannot modify while borrowed
+    # bind ref to borrow numbers
+    # numbers.push(4)
+
+    # FIX: Ensure borrow ends before modification
+    bind ref to borrow numbers
+    bind first to ref[0]
+    # ref no longer used, borrow ends
+
+    numbers.push(4)  # OK now
+    VGA.write("First was: " + to_text(first))
+    VGA.write("After push: " + to_text(numbers))
+end
+
+# Run demonstrations
+demonstrate_use_after_move()
+demonstrate_multiple_mut_borrows()
+demonstrate_mixed_borrows()
+bind value to good_reference()
+VGA.write("Returned value: " + to_text(value))
+demonstrate_modify_while_borrowed()

@@ -70,6 +70,10 @@ pub mod bytecode_compiler;
 pub mod vm;
 pub mod monomorphize;
 pub mod type_inference;
+pub mod borrow_checker;
+pub mod lifetime_checker;
+pub mod source_location;
+pub mod error_formatter;
 pub mod native_runtime;
 pub mod module_resolver;
 
@@ -118,4 +122,6 @@ pub use eval::{Value, RuntimeError, Environment, Evaluator};
 pub use codegen::{CodeGen, Instruction, Register, compile_to_asm};
 pub use elf::{ElfBuilder, create_elf_object};
 pub use semantic::{SemanticAnalyzer, SemanticError, Type, analyze};
+pub use borrow_checker::{BorrowChecker, BorrowError};
+pub use lifetime_checker::{LifetimeChecker, LifetimeError};
 pub use module_resolver::{ModuleResolver, ModuleInfo, ResolverError, ResolverResult};

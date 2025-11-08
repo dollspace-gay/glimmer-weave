@@ -4,7 +4,7 @@ use glimmer_weave::{Lexer, Parser, Evaluator, Value};
 
 fn eval_source(source: &str) -> Result<Value, String> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| format!("{:?}", e))?;
     let mut evaluator = Evaluator::new();

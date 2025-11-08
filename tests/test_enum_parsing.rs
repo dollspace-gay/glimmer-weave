@@ -8,7 +8,7 @@ use glimmer_weave::{Lexer, Parser, AstNode};
 /// Helper function to parse source code and return the first AST node
 fn parse_first(source: &str) -> Result<AstNode, String> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| format!("{:?}", e))?;
 

@@ -1,0 +1,75 @@
+# Example 26: Structs and Ownership
+# Demonstrates ownership with custom data types
+
+# Define a struct
+form Person with
+    name as Text
+    age as Number
+    friends as List<Text>
+end
+
+# Function that takes ownership of a Person
+chant consume_person(person as Person) then
+    VGA.write("Consuming: " + person.name)
+    # person is dropped at end of function
+end
+
+# Function that borrows a Person (read-only)
+chant greet(borrow person as Person) then
+    VGA.write("Hello, " + person.name + "!")
+    VGA.write("You are " + to_text(person.age) + " years old")
+end
+
+# Function that mutably borrows to modify
+chant add_friend(borrow mut person as Person, friend as Text) then
+    person.friends.push(friend)
+end
+
+# Function that returns a new Person (transfers ownership)
+chant create_person(name as Text, age as Number) -> Person then
+    yield Person {
+        name: name,
+        age: age,
+        friends: []
+    }
+end
+
+# Create a person (owned)
+bind alice to create_person("Alice", 30)
+VGA.write("Created: " + alice.name)
+
+# Borrow to greet (alice still valid after)
+greet(borrow alice)
+
+# Mutably borrow to add friends
+add_friend(borrow mut alice, "Bob")
+add_friend(borrow mut alice, "Carol")
+VGA.write("Friends: " + to_text(alice.friends))
+
+# Clone before consuming
+bind alice_copy to alice.replicate()
+consume_person(alice)  # alice moved here
+# alice is no longer valid
+
+# But alice_copy is still valid
+greet(borrow alice_copy)
+
+# Struct with borrowed data
+form Report<'span> with
+    title as Text
+    data as borrow 'span List<Number>
+end
+
+chant create_report<'span>(
+    title as Text,
+    borrow 'span numbers as List<Number>
+) -> Report<'span> then
+    yield Report {
+        title: title,
+        data: borrow numbers
+    }
+end
+
+bind metrics to [100, 200, 300]
+bind report to create_report("Q1 Metrics", borrow metrics)
+VGA.write("Report: " + report.title)

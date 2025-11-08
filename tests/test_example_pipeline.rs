@@ -11,7 +11,7 @@ fn test_pipeline_example() {
 
     // Parse and evaluate
     let mut lexer = Lexer::new(&source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse error");

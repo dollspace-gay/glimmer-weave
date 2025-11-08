@@ -492,6 +492,10 @@ fn semantic_type_annotation_to_string(ann: &TypeAnnotation) -> String {
         TypeAnnotation::Optional(inner) => {
             format!("{}?", semantic_type_annotation_to_string(inner))
         }
+        TypeAnnotation::Borrowed { inner, mutable, .. } => {
+            let mut_str = if *mutable { " mut" } else { "" };
+            format!("borrow{} {}", mut_str, semantic_type_annotation_to_string(inner))
+        }
     }
 }
 
@@ -605,19 +609,19 @@ impl SemanticAnalyzer {
     fn analyze_node(&mut self, node: &AstNode) -> Type {
         match node {
             // === Literals ===
-            AstNode::Number(_) => Type::Number,
-            AstNode::Text(_) => Type::Text,
-            AstNode::Truth(_) => Type::Truth,
-            AstNode::Nothing => Type::Nothing,
+            AstNode::Number { .. } => Type::Number,
+            AstNode::Text { .. } => Type::Text,
+            AstNode::Truth { .. } => Type::Truth,
+            AstNode::Nothing { .. } => Type::Nothing,
 
             // === Outcome/Maybe Constructors ===
-            AstNode::Triumph(_value) => Type::Any, // TODO: proper Outcome<T, E> type
-            AstNode::Mishap(_value) => Type::Any, // TODO: proper Outcome<T, E> type
-            AstNode::Present(_value) => Type::Any, // TODO: proper Maybe<T> type
-            AstNode::Absent => Type::Any, // TODO: proper Maybe<T> type
+            AstNode::Triumph { .. } => Type::Any, // TODO: proper Outcome<T, E> type
+            AstNode::Mishap { .. } => Type::Any, // TODO: proper Outcome<T, E> type
+            AstNode::Present { .. } => Type::Any, // TODO: proper Maybe<T> type
+            AstNode::Absent { .. } => Type::Any, // TODO: proper Maybe<T> type
 
             // === Variables ===
-            AstNode::Ident(name) => {
+            AstNode::Ident { name, .. } => {
                 if let Some(symbol) = self.symbol_table.lookup(name) {
                     symbol.typ.clone()
                 } else {
@@ -627,7 +631,7 @@ impl SemanticAnalyzer {
             }
 
             // === Statements ===
-            AstNode::BindStmt { name, typ, value } => {
+            AstNode::BindStmt { name, typ, value, .. } => {
                 let value_type = self.analyze_node(value);
 
                 // If type annotation is provided, check compatibility
@@ -652,7 +656,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::WeaveStmt { name, typ, value } => {
+            AstNode::WeaveStmt { name, typ, value, .. } => {
                 let value_type = self.analyze_node(value);
 
                 // If type annotation is provided, check compatibility
@@ -677,7 +681,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::SetStmt { name, value } => {
+            AstNode::SetStmt { name, value, .. } => {
                 // Check variable exists and is mutable
                 let symbol_info = self.symbol_table.lookup(name).map(|s| (s.typ.clone(), s.mutable));
 
@@ -699,7 +703,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::ChantDef { name, type_params, params, return_type, body } => {
+            AstNode::ChantDef { name, type_params, params, return_type, body, .. } => {
                 // Push type parameters onto the stack if any
                 if !type_params.is_empty() {
                     self.push_type_params(type_params);
@@ -757,7 +761,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::FormDef { name, type_params, fields: _ } => {
+            AstNode::FormDef { name, type_params, fields: _, .. } => {
                 // Push type parameters onto the stack if any
                 if !type_params.is_empty() {
                     self.push_type_params(type_params);
@@ -778,7 +782,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::VariantDef { name, type_params, variants: _ } => {
+            AstNode::VariantDef { name, type_params, variants: _, .. } => {
                 // TODO: Phase 1 - Proper enum type checking
                 // Push type parameters onto the stack if any
                 if !type_params.is_empty() {
@@ -800,7 +804,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::AspectDef { name, type_params, methods } => {
+            AstNode::AspectDef { name, type_params, methods, .. } => {
                 // Phase 2: Store trait definition and validate
 
                 // Check for duplicate trait definition
@@ -838,7 +842,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods } => {
+            AstNode::EmbodyStmt { aspect_name, type_args, target_type, methods, .. } => {
                 // Phase 2: Validate and store trait implementation
 
                 // Check that the trait exists
@@ -907,7 +911,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::StructLiteral { struct_name, fields: _, .. } => {
+            AstNode::StructLiteral { struct_name, .. } => {
                 // Check that the struct type exists
                 if self.symbol_table.lookup(struct_name).is_none() {
                     self.errors.push(SemanticError::UndefinedVariable(struct_name.clone()));
@@ -916,24 +920,24 @@ impl SemanticAnalyzer {
                 Type::Any
             }
 
-            AstNode::YieldStmt { value } => {
+            AstNode::YieldStmt { value, .. } => {
                 if !self.in_function {
                     self.errors.push(SemanticError::ReturnOutsideFunction);
                 }
                 self.analyze_node(value)
             }
 
-            AstNode::Break => {
+            AstNode::Break { .. } => {
                 // TODO: Check if we're inside a loop
                 Type::Nothing
             }
 
-            AstNode::Continue => {
+            AstNode::Continue { .. } => {
                 // TODO: Check if we're inside a loop
                 Type::Nothing
             }
 
-            AstNode::Try { expr } => {
+            AstNode::Try { expr, .. } => {
                 let expr_type = self.analyze_node(expr);
 
                 // Check if the expression is an Outcome type and extract T from Outcome<T, E>
@@ -960,7 +964,7 @@ impl SemanticAnalyzer {
             }
 
             // === Control Flow ===
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 let _cond_type = self.analyze_node(condition);
                 // Condition can be any type (truthiness)
 
@@ -982,7 +986,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::ForStmt { variable, iterable, body } => {
+            AstNode::ForStmt { variable, iterable, body, .. } => {
                 let iter_type = self.analyze_node(iterable);
 
                 // Check iterable is List or Range
@@ -1009,7 +1013,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::WhileStmt { condition, body } => {
+            AstNode::WhileStmt { condition, body, .. } => {
                 // Analyze condition (should evaluate to something truthy)
                 let _cond_type = self.analyze_node(condition);
                 // Accept any type for condition (will be checked at runtime via is_truthy)
@@ -1026,7 +1030,7 @@ impl SemanticAnalyzer {
             }
 
             // === Binary Operations ===
-            AstNode::BinaryOp { left, op, right } => {
+            AstNode::BinaryOp { left, op, right, .. } => {
                 let left_type = self.analyze_node(left);
                 let right_type = self.analyze_node(right);
 
@@ -1087,7 +1091,7 @@ impl SemanticAnalyzer {
             }
 
             // === Unary Operations ===
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 let operand_type = self.analyze_node(operand);
 
                 match op {
@@ -1122,7 +1126,7 @@ impl SemanticAnalyzer {
                     Type::Function { params, return_type } => {
                         // Check arity
                         if params.len() != arg_types.len() {
-                            if let AstNode::Ident(name) = &**callee {
+                            if let AstNode::Ident { name, .. } = &**callee {
                                 self.errors.push(SemanticError::ArityMismatch {
                                     function: name.clone(),
                                     expected: params.len(),
@@ -1162,7 +1166,7 @@ impl SemanticAnalyzer {
             }
 
             // === Data Structures ===
-            AstNode::List(elements) => {
+            AstNode::List { elements, .. } => {
                 let _elem_types: Vec<Type> = elements.iter()
                     .map(|elem| self.analyze_node(elem))
                     .collect();
@@ -1171,14 +1175,14 @@ impl SemanticAnalyzer {
                 Type::List(Box::new(Type::Any))
             }
 
-            AstNode::Map(fields) => {
-                for (_, value) in fields {
+            AstNode::Map { entries, .. } => {
+                for (_, value) in entries {
                     self.analyze_node(value);
                 }
                 Type::Map
             }
 
-            AstNode::FieldAccess { object, field } => {
+            AstNode::FieldAccess { object, field, .. } => {
                 let obj_type = self.analyze_node(object);
 
                 match obj_type {
@@ -1194,7 +1198,7 @@ impl SemanticAnalyzer {
                 }
             }
 
-            AstNode::IndexAccess { object, index } => {
+            AstNode::IndexAccess { object, index, .. } => {
                 let obj_type = self.analyze_node(object);
                 let idx_type = self.analyze_node(index);
 
@@ -1226,7 +1230,7 @@ impl SemanticAnalyzer {
                 }
             }
 
-            AstNode::Range { start, end } => {
+            AstNode::Range { start, end, .. } => {
                 let start_type = self.analyze_node(start);
                 let end_type = self.analyze_node(end);
 
@@ -1250,19 +1254,19 @@ impl SemanticAnalyzer {
             }
 
             // === Expression Statement ===
-            AstNode::ExprStmt(expr) => self.analyze_node(expr),
+            AstNode::ExprStmt { expr, .. } => self.analyze_node(expr),
 
             // === Block ===
-            AstNode::Block(stmts) => {
+            AstNode::Block { statements, .. } => {
                 let mut result_type = Type::Nothing;
-                for stmt in stmts {
+                for stmt in statements {
                     result_type = self.analyze_node(stmt);
                 }
                 result_type
             }
 
             // === Not Yet Implemented ===
-            AstNode::MatchStmt { value, arms } => {
+            AstNode::MatchStmt { value, arms, .. } => {
                 use crate::ast::Pattern;
 
                 // Analyze the value being matched
@@ -1327,7 +1331,7 @@ impl SemanticAnalyzer {
             }
 
             // === Module System (Phase 3: Semantic Analysis) ===
-            AstNode::ModuleDecl { name, body, exports } => {
+            AstNode::ModuleDecl { name, body, exports, .. } => {
                 // Set current module context
                 let prev_module = self.current_module.clone();
                 self.current_module = Some(name.clone());
@@ -1369,7 +1373,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::Import { module_name, path: _, items, alias } => {
+            AstNode::Import { module_name, path: _, items, alias, .. } => {
                 // For Phase 3, we perform basic validation
                 // In Phase 4 (Interpreter Support), ModuleResolver will load actual modules
 
@@ -1410,7 +1414,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::Export { items } => {
+            AstNode::Export { items, .. } => {
                 // Standalone export statement (not inside module declaration)
                 // Validate that exported symbols exist in current scope
                 for item_name in items {
@@ -1426,7 +1430,7 @@ impl SemanticAnalyzer {
                 Type::Nothing
             }
 
-            AstNode::ModuleAccess { module, member } => {
+            AstNode::ModuleAccess { module, member, .. } => {
                 // Resolve module.member access
 
                 // Check if module is imported
@@ -1509,6 +1513,11 @@ impl SemanticAnalyzer {
                 // Optional types not yet supported, treat as Any for now
                 Type::Any
             }
+            TypeAnnotation::Borrowed { inner, .. } => {
+                // Borrowed types are converted to their inner type for now
+                // In the future, we'll track borrow semantics properly
+                self.convert_type_annotation(inner)
+            }
         }
     }
 }
@@ -1523,6 +1532,12 @@ pub fn analyze(nodes: &[AstNode]) -> Result<(), Vec<SemanticError>> {
 mod tests {
     use super::*;
     use crate::ast::*;
+    use crate::source_location::SourceSpan;
+
+    // Helper to create a dummy span for tests
+    fn span() -> SourceSpan {
+        SourceSpan::unknown()
+    }
 
     #[test]
     fn test_exhaustive_match_with_wildcard() {
@@ -1531,17 +1546,18 @@ mod tests {
         //     otherwise then 999
         // end
         let ast = vec![AstNode::MatchStmt {
-            value: Box::new(AstNode::Number(1.0)),
+            value: Box::new(AstNode::Number { value: 1.0, span: span() }),
             arms: vec![
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number(1.0)),
-                    body: vec![AstNode::Number(100.0)],
+                    pattern: Pattern::Literal(AstNode::Number { value: 1.0, span: span() }),
+                    body: vec![AstNode::Number { value: 100.0, span: span() }],
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![AstNode::Number(999.0)],
+                    body: vec![AstNode::Number { value: 999.0, span: span() }],
                 },
             ],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1557,17 +1573,19 @@ mod tests {
         //     when n then n * 2
         // end
         let ast = vec![AstNode::MatchStmt {
-            value: Box::new(AstNode::Number(42.0)),
+            value: Box::new(AstNode::Number { value: 42.0, span: span() }),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Ident("n".to_string()),
                     body: vec![AstNode::BinaryOp {
-                        left: Box::new(AstNode::Ident("n".to_string())),
+                        left: Box::new(AstNode::Ident { name: "n".to_string(), span: span() }),
                         op: BinaryOperator::Mul,
-                        right: Box::new(AstNode::Number(2.0)),
+                        right: Box::new(AstNode::Number { value: 2.0, span: span() }),
+                        span: span(),
                     }],
                 },
             ],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1585,17 +1603,18 @@ mod tests {
         // end
         // Missing catch-all!
         let ast = vec![AstNode::MatchStmt {
-            value: Box::new(AstNode::Number(2.0)),
+            value: Box::new(AstNode::Number { value: 2.0, span: span() }),
             arms: vec![
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number(1.0)),
-                    body: vec![AstNode::Number(100.0)],
+                    pattern: Pattern::Literal(AstNode::Number { value: 1.0, span: span() }),
+                    body: vec![AstNode::Number { value: 100.0, span: span() }],
                 },
                 MatchArm {
-                    pattern: Pattern::Literal(AstNode::Number(2.0)),
-                    body: vec![AstNode::Number(200.0)],
+                    pattern: Pattern::Literal(AstNode::Number { value: 2.0, span: span() }),
+                    body: vec![AstNode::Number { value: 200.0, span: span() }],
                 },
             ],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1616,15 +1635,20 @@ mod tests {
         let ast = vec![AstNode::ChantDef {
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],
+            lifetime_params: vec![],
             params: vec![Parameter {
                 name: "x".to_string(),
                 typ: Some(TypeAnnotation::Generic("T".to_string())),
                 is_variadic: false,
+                borrow_mode: BorrowMode::Owned,
+                lifetime: None,
             }],
             return_type: Some(TypeAnnotation::Generic("T".to_string())),
             body: vec![AstNode::YieldStmt {
-                value: Box::new(AstNode::Ident("x".to_string())),
+                value: Box::new(AstNode::Ident { name: "x".to_string(), span: span() }),
+                span: span(),
             }],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1646,6 +1670,7 @@ mod tests {
                 name: "value".to_string(),
                 typ: TypeAnnotation::Generic("T".to_string()),
             }],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1663,22 +1688,29 @@ mod tests {
         let ast = vec![AstNode::ChantDef {
             name: "pair".to_string(),
             type_params: vec!["T".to_string(), "U".to_string()],
+            lifetime_params: vec![],
             params: vec![
                 Parameter {
                     name: "first".to_string(),
                     typ: Some(TypeAnnotation::Generic("T".to_string())),
                     is_variadic: false,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 },
                 Parameter {
                     name: "second".to_string(),
                     typ: Some(TypeAnnotation::Generic("U".to_string())),
                     is_variadic: false,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 },
             ],
             return_type: Some(TypeAnnotation::Named("Number".to_string())),
             body: vec![AstNode::YieldStmt {
-                value: Box::new(AstNode::Number(42.0)),
+                value: Box::new(AstNode::Number { value: 42.0, span: span() }),
+                span: span(),
             }],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1697,16 +1729,20 @@ mod tests {
         let ast = vec![AstNode::ChantDef {
             name: "wrap".to_string(),
             type_params: vec!["T".to_string()],
+            lifetime_params: vec![],
             params: vec![Parameter {
                 name: "x".to_string(),
                 typ: Some(TypeAnnotation::Generic("T".to_string())),
                 is_variadic: false,
+                borrow_mode: BorrowMode::Owned,
+                lifetime: None,
             }],
             return_type: Some(TypeAnnotation::Parametrized {
                 name: "Box".to_string(),
                 type_args: vec![TypeAnnotation::Generic("T".to_string())],
             }),
             body: vec![],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1746,38 +1782,51 @@ mod tests {
                 AstNode::ChantDef {
                     name: "sqrt".to_string(),
                     type_params: vec![],
+                    lifetime_params: vec![],
                     params: vec![Parameter {
                         name: "x".to_string(),
                         typ: None,
                         is_variadic: false,
+                        borrow_mode: BorrowMode::Owned,
+                        lifetime: None,
                     }],
                     return_type: None,
                     body: vec![AstNode::YieldStmt {
-                        value: Box::new(AstNode::Ident("x".to_string())),
+                        value: Box::new(AstNode::Ident { name: "x".to_string(), span: span() }),
+                        span: span(),
                     }],
+                    span: span(),
                 },
                 AstNode::ChantDef {
                     name: "pow".to_string(),
                     type_params: vec![],
+                    lifetime_params: vec![],
                     params: vec![
                         Parameter {
                             name: "a".to_string(),
                             typ: None,
                             is_variadic: false,
+                            borrow_mode: BorrowMode::Owned,
+                            lifetime: None,
                         },
                         Parameter {
                             name: "b".to_string(),
                             typ: None,
                             is_variadic: false,
+                            borrow_mode: BorrowMode::Owned,
+                            lifetime: None,
                         },
                     ],
                     return_type: None,
                     body: vec![AstNode::YieldStmt {
-                        value: Box::new(AstNode::Ident("a".to_string())),
+                        value: Box::new(AstNode::Ident { name: "a".to_string(), span: span() }),
+                        span: span(),
                     }],
+                    span: span(),
                 },
             ],
             exports: vec!["sqrt".to_string(), "pow".to_string()],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1805,17 +1854,23 @@ mod tests {
             body: vec![AstNode::ChantDef {
                 name: "sqrt".to_string(),
                 type_params: vec![],
+                lifetime_params: vec![],
                 params: vec![Parameter {
                     name: "x".to_string(),
                     typ: None,
                     is_variadic: false,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 }],
                 return_type: None,
                 body: vec![AstNode::YieldStmt {
-                    value: Box::new(AstNode::Ident("x".to_string())),
+                    value: Box::new(AstNode::Ident { name: "x".to_string(), span: span() }),
+                    span: span(),
                 }],
+                span: span(),
             }],
             exports: vec!["sqrt".to_string(), "nonexistent".to_string()],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1839,6 +1894,7 @@ mod tests {
             path: "std/math.gw".to_string(),
             items: None,  // Import all
             alias: None,
+            span: SourceSpan::unknown(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1860,13 +1916,15 @@ mod tests {
             AstNode::BindStmt {
                 name: "Math".to_string(),
                 typ: None,
-                value: Box::new(AstNode::Number(42.0)),
+                value: Box::new(AstNode::Number { value: 42.0, span: span() }),
+                span: span(),
             },
             AstNode::Import {
                 module_name: "Math".to_string(),
                 path: "std/math.gw".to_string(),
                 items: None,
                 alias: None,
+                span: span(),
             },
         ];
 
@@ -1891,13 +1949,15 @@ mod tests {
             AstNode::BindStmt {
                 name: "sqrt".to_string(),
                 typ: None,
-                value: Box::new(AstNode::Number(42.0)),
+                value: Box::new(AstNode::Number { value: 42.0, span: span() }),
+                span: span(),
             },
             AstNode::Import {
                 module_name: "Math".to_string(),
                 path: "std/math.gw".to_string(),
                 items: Some(vec!["sqrt".to_string(), "pow".to_string()]),
                 alias: None,
+                span: span(),
             },
         ];
 
@@ -1921,9 +1981,11 @@ mod tests {
             callee: Box::new(AstNode::ModuleAccess {
                 module: "Math".to_string(),
                 member: "sqrt".to_string(),
+                span: span(),
             }),
-            args: vec![AstNode::Number(16.0)],
+            args: vec![AstNode::Number { value: 16.0, span: span() }],
             type_args: vec![],
+            span: span(),
         }];
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -1958,41 +2020,53 @@ mod tests {
                     AstNode::ChantDef {
                         name: "_private_helper".to_string(),
                         type_params: vec![],
+                        lifetime_params: vec![],
                         params: vec![],
                         return_type: None,
                         body: vec![AstNode::YieldStmt {
-                            value: Box::new(AstNode::Number(42.0)),
+                            value: Box::new(AstNode::Number { value: 42.0, span: span() }),
+                            span: span(),
                         }],
+                        span: span(),
                     },
                     AstNode::ChantDef {
                         name: "sqrt".to_string(),
                         type_params: vec![],
+                        lifetime_params: vec![],
                         params: vec![Parameter {
                             name: "x".to_string(),
                             typ: None,
                             is_variadic: false,
+                            borrow_mode: BorrowMode::Owned,
+                            lifetime: None,
                         }],
                         return_type: None,
                         body: vec![AstNode::YieldStmt {
-                            value: Box::new(AstNode::Ident("x".to_string())),
+                            value: Box::new(AstNode::Ident { name: "x".to_string(), span: span() }),
+                            span: span(),
                         }],
+                        span: span(),
                     },
                 ],
                 exports: vec!["sqrt".to_string()], // Only sqrt is exported
+                span: span(),
             },
             AstNode::Import {
                 module_name: "Math".to_string(),
                 path: "std/math.gw".to_string(),
                 items: None,
                 alias: None,
+                span: span(),
             },
             AstNode::Call {
                 callee: Box::new(AstNode::ModuleAccess {
                     module: "Math".to_string(),
                     member: "_private_helper".to_string(),
+                    span: span(),
                 }),
                 args: vec![],
                 type_args: vec![],
+                span: span(),
             },
         ];
 
@@ -2028,31 +2102,40 @@ mod tests {
                 body: vec![AstNode::ChantDef {
                     name: "sqrt".to_string(),
                     type_params: vec![],
+                    lifetime_params: vec![],
                     params: vec![Parameter {
                         name: "x".to_string(),
                         typ: None,
                         is_variadic: false,
+                        borrow_mode: BorrowMode::Owned,
+                        lifetime: None,
                     }],
                     return_type: None,
                     body: vec![AstNode::YieldStmt {
-                        value: Box::new(AstNode::Ident("x".to_string())),
+                        value: Box::new(AstNode::Ident { name: "x".to_string(), span: span() }),
+                        span: span(),
                     }],
+                    span: span(),
                 }],
                 exports: vec!["sqrt".to_string()],
+                span: span(),
             },
             AstNode::Import {
                 module_name: "Math".to_string(),
                 path: "std/math.gw".to_string(),
                 items: None,
                 alias: None,
+                span: span(),
             },
             AstNode::Call {
                 callee: Box::new(AstNode::ModuleAccess {
                     module: "Math".to_string(),
                     member: "sqrt".to_string(),
+                    span: span(),
                 }),
-                args: vec![AstNode::Number(16.0)],
+                args: vec![AstNode::Number { value: 16.0, span: span() }],
                 type_args: vec![],
+                span: span(),
             },
         ];
 

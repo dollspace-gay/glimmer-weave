@@ -28,7 +28,7 @@ fn test_comprehensive_glimmer_weave_program() {
             println!("─────────────────────────────────────────────────────────");
 
             let mut lexer = Lexer::new(&source);
-            let tokens = lexer.tokenize();
+            let tokens = lexer.tokenize_positioned();
 
             println!("✓ Tokenized {} tokens", tokens.len());
             println!("  First 10 tokens: {:?}\n", &tokens[0..10.min(tokens.len())]);
@@ -118,7 +118,7 @@ fn test_factorial_correctness() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -154,7 +154,7 @@ fn test_fibonacci_correctness() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -184,7 +184,7 @@ fn test_gcd_correctness() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -213,7 +213,7 @@ fn test_nested_while_loops() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -246,7 +246,7 @@ fn test_collatz_conjecture() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -277,7 +277,7 @@ fn test_all_data_types() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();

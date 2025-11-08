@@ -1,0 +1,37 @@
+# Example 21: Shared Borrowing
+# Demonstrates read-only borrowing with multiple borrows
+
+# Function that borrows a list (read-only)
+chant sum(borrow list as List<Number>) -> Number then
+    bind total to 0
+    for each item in borrow list then
+        set total to total + item
+    end
+    yield total
+end
+
+# Function that finds the maximum
+chant max(borrow list as List<Number>) -> Number then
+    bind maximum to list[0]
+    for each item in borrow list then
+        should item > maximum then
+            set maximum to item
+        end
+    end
+    yield maximum
+end
+
+# Create a list
+bind numbers to [10, 25, 5, 42, 18]
+
+# Multiple shared borrows are allowed
+bind total to sum(borrow numbers)
+bind largest to max(borrow numbers)
+
+VGA.write("Numbers: " + to_text(numbers))
+VGA.write("Sum: " + to_text(total))
+VGA.write("Max: " + to_text(largest))
+
+# numbers is still valid and can be used
+numbers.push(99)
+VGA.write("After push: " + to_text(numbers))

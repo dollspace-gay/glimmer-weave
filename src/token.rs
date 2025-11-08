@@ -18,6 +18,40 @@ impl Span {
     pub fn new(line: usize, column: usize) -> Self {
         Span { line, column }
     }
+
+    /// Create an unknown/synthetic span
+    pub fn unknown() -> Self {
+        Span { line: 0, column: 0 }
+    }
+
+    /// Convert to SourceLocation (for error reporting)
+    pub fn to_source_location(&self) -> crate::source_location::SourceLocation {
+        crate::source_location::SourceLocation::new(self.line, self.column)
+    }
+
+    /// Convert to SourceSpan (single point)
+    pub fn to_source_span(&self) -> crate::source_location::SourceSpan {
+        let loc = self.to_source_location();
+        crate::source_location::SourceSpan::point(loc)
+    }
+}
+
+/// A token with its source location
+#[derive(Debug, Clone, PartialEq)]
+pub struct PositionedToken {
+    pub token: Token,
+    pub span: Span,
+}
+
+impl PositionedToken {
+    pub fn new(token: Token, span: Span) -> Self {
+        PositionedToken { token, span }
+    }
+
+    /// Get the start position as SourceSpan
+    pub fn source_span(&self) -> crate::source_location::SourceSpan {
+        self.span.to_source_span()
+    }
 }
 
 /// All tokens recognized by Glimmer-Weave
@@ -63,6 +97,11 @@ pub enum Token {
     Chant,
     /// `yield` - Return statement
     Yield,
+
+    /// `borrow` - Borrow reference (shared or mutable)
+    Borrow,
+    /// `mut` - Mutable modifier for borrows
+    Mut,
 
     /// `form` - Struct/type declaration
     Form,
@@ -153,6 +192,8 @@ pub enum Token {
     // === Identifiers ===
     /// Variable/function name
     Ident(String),
+    /// Lifetime annotation (e.g., 'span, 'a, 'static)
+    Lifetime(String),
 
     // === Operators ===
     /// `+` addition
@@ -248,6 +289,8 @@ impl Token {
                 | Token::Whilst
                 | Token::Chant
                 | Token::Yield
+                | Token::Borrow
+                | Token::Mut
                 | Token::Form
                 | Token::Variant
                 | Token::Grove
@@ -328,6 +371,8 @@ impl Token {
             Token::Continue => "continue",
             Token::Chant => "chant",
             Token::Yield => "yield",
+            Token::Borrow => "borrow",
+            Token::Mut => "mut",
             Token::Form => "form",
             Token::Variant => "variant",
             Token::Aspect => "aspect",
@@ -366,6 +411,7 @@ impl Token {
             Token::Truth(_) => "truth",
             Token::Nothing => "nothing",
             Token::Ident(_) => "identifier",
+            Token::Lifetime(_) => "lifetime",
             Token::Plus => "+",
             Token::Minus => "-",
             Token::Star => "*",

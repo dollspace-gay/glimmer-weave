@@ -8,7 +8,7 @@ use glimmer_weave::{Lexer, Parser, Evaluator, Value, RuntimeError};
 fn run(source: &str) -> Result<Value, String> {
     // Tokenize
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     // Parse
     let mut parser = Parser::new(tokens);
@@ -23,7 +23,7 @@ fn run(source: &str) -> Result<Value, String> {
 fn eval_helper(source: &str) -> Result<Value, RuntimeError> {
     // Tokenize
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     // Parse
     let mut parser = Parser::new(tokens);

@@ -8,7 +8,7 @@ use glimmer_weave::{Lexer, Parser, Evaluator, Value};
 /// Helper function to evaluate source code and return the environment
 fn eval_program(source: &str) -> Result<Evaluator, String> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
 

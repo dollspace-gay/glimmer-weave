@@ -1,0 +1,44 @@
+# Example 22: Mutable Borrowing
+# Demonstrates exclusive mutable borrowing
+
+# Function that mutably borrows a list to modify it
+chant double_all(borrow mut list as List<Number>) then
+    for each i in range(0, list.length()) then
+        set list[i] to list[i] * 2
+    end
+end
+
+# Function that sorts a list in place (simplified bubble sort)
+chant sort(borrow mut list as List<Number>) then
+    bind n to list.length()
+    for each i in range(0, n) then
+        for each j in range(0, n - i - 1) then
+            should list[j] > list[j + 1] then
+                # Swap elements
+                bind temp to list[j]
+                set list[j] to list[j + 1]
+                set list[j + 1] to temp
+            end
+        end
+    end
+end
+
+# Create a list
+bind numbers to [3, 1, 4, 1, 5, 9, 2, 6]
+VGA.write("Original: " + to_text(numbers))
+
+# Mutable borrow to double all values
+double_all(borrow mut numbers)
+VGA.write("After doubling: " + to_text(numbers))
+
+# Mutable borrow to sort
+sort(borrow mut numbers)
+VGA.write("After sorting: " + to_text(numbers))
+
+# Only ONE mutable borrow allowed at a time
+# bind ref1 to borrow mut numbers
+# bind ref2 to borrow mut numbers  # ERROR: already mutably borrowed
+
+# Cannot mix shared and mutable borrows
+# bind shared to borrow numbers
+# modify(borrow mut numbers)  # ERROR: already borrowed as shared

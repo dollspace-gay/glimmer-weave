@@ -23,6 +23,17 @@ This directory contains example programs written in Glimmer-Weave, the scripting
 | `15_type_conversion.gw` | Type conversions | Various |
 | `16_comprehensive_test.gw` | Comprehensive language test | Various |
 | `17_structs.gw` | Custom data types with named fields | 50 |
+| **Ownership & Borrowing** | | |
+| `20_ownership_basics.gw` | Basic ownership and move semantics | Move errors demonstrated |
+| `21_shared_borrowing.gw` | Read-only borrowing with multiple borrows | Sum and max computations |
+| `22_mutable_borrowing.gw` | Exclusive mutable borrowing | In-place modifications |
+| `23_lifetimes.gw` | Explicit lifetime annotations | References with lifetimes |
+| `24_ownership_patterns.gw` | Common ownership patterns (builder, transform, etc.) | Chained transformations |
+| `25_ownership_errors.gw` | Common errors and how to fix them | Error demonstrations |
+| `26_structs_ownership.gw` | Ownership with custom data types | Person struct with borrows |
+| `27_collections_ownership.gw` | Collections and ownership patterns | List and map operations |
+| `28_advanced_ownership.gw` | Advanced patterns (iterators, builders, etc.) | Iterator and builder patterns |
+| `29_migration_guide.gw` | Migrating code to use ownership system | Performance comparisons |
 
 ## Running Examples
 
@@ -155,8 +166,8 @@ std::fs::write("output.s", assembly)?;
 ## Implementation Status
 
 ✅ **Complete**:
-- Lexer (tokenization)
-- Parser (AST generation)
+- Lexer (tokenization with position tracking)
+- Parser (AST generation with source spans)
 - Evaluator (basic execution)
 - Variables (bind, weave, set)
 - Control flow (if, for, whilst)
@@ -167,6 +178,10 @@ std::fs::write("output.s", assembly)?;
 - Error handling (`attempt ... harmonize`)
 - Outcome/Maybe types (`Triumph`, `Mishap`, `Present`, `Absent`)
 - Custom structs (`form ... with ... end`)
+- **Ownership & Borrowing System** (`borrow`, `borrow mut`, lifetimes)
+- Borrow checking (compile-time safety)
+- Lifetime inference and validation
+- Precise error messages with source locations
 
 ⚪ **Not Yet Implemented**:
 - Pipelines (`|`)

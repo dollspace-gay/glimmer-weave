@@ -20,7 +20,7 @@
 
 use crate::ast::AstNode;
 use crate::lexer::Lexer;
-use crate::parser::{Parser, ParseError};
+use crate::parser::Parser;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -221,7 +221,7 @@ impl ModuleResolver {
 
         // Parse the source
         let mut lexer = Lexer::new(&source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
 
         let ast = parser.parse().map_err(|e| ResolverError::ParseError {
@@ -276,7 +276,7 @@ impl ModuleResolver {
         for node in ast {
             match node {
                 // Extract module name from grove declaration
-                AstNode::ModuleDecl { name: module_name, body: _, exports: module_exports } => {
+                AstNode::ModuleDecl { name: module_name, body: _, exports: module_exports, .. } => {
                     name = module_name.clone();
                     exports.extend(module_exports.clone());
                 }
@@ -287,7 +287,7 @@ impl ModuleResolver {
                 }
 
                 // Extract exports
-                AstNode::Export { items } => {
+                AstNode::Export { items, .. } => {
                     exports.extend(items.clone());
                 }
 

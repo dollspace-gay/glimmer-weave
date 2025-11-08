@@ -1,0 +1,71 @@
+# Example 24: Common Ownership Patterns
+# Demonstrates practical patterns for working with ownership
+
+# Pattern 1: Builder pattern (returns ownership)
+chant create_list(start as Number, end as Number) -> List<Number> then
+    bind result to []
+    for each i in range(start, end + 1) then
+        result.push(i)
+    end
+    yield result  # Transfer ownership to caller
+end
+
+# Pattern 2: Transform and return (takes ownership, returns new value)
+chant map_double(list as List<Number>) -> List<Number> then
+    bind result to []
+    for each item in list then
+        result.push(item * 2)
+    end
+    yield result
+end
+
+# Pattern 3: In-place transformation (mutable borrow)
+chant increment_all(borrow mut list as List<Number>) then
+    for each i in range(0, list.length()) then
+        set list[i] to list[i] + 1
+    end
+end
+
+# Pattern 4: Read-only computation (shared borrow)
+chant average(borrow list as List<Number>) -> Number then
+    should list.length() is 0 then
+        yield 0
+    end
+
+    bind sum to 0
+    for each item in borrow list then
+        set sum to sum + item
+    end
+    yield sum / list.length()
+end
+
+# Pattern 5: Chaining with ownership transfer
+chant filter_even(list as List<Number>) -> List<Number> then
+    bind result to []
+    for each item in list then
+        should item % 2 is 0 then
+            result.push(item)
+        end
+    end
+    yield result
+end
+
+# Usage examples
+bind nums to create_list(1, 10)
+VGA.write("Created: " + to_text(nums))
+
+# Compute average without consuming nums
+bind avg to average(borrow nums)
+VGA.write("Average: " + to_text(avg))
+
+# In-place modification
+increment_all(borrow mut nums)
+VGA.write("After increment: " + to_text(nums))
+
+# Chain transformations (ownership transfers)
+bind doubled to map_double(nums)  # nums moved here
+bind evens to filter_even(doubled)  # doubled moved here
+VGA.write("Doubled evens: " + to_text(evens))
+
+# nums and doubled are no longer valid
+# VGA.write(to_text(nums))  # ERROR: value was moved

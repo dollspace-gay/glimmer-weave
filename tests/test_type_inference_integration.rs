@@ -8,7 +8,7 @@ use glimmer_weave::{Lexer, Parser, SemanticAnalyzer};
 fn parse_and_infer(source: &str) -> Result<(), String> {
     // Parse the source
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
 
@@ -254,7 +254,7 @@ fn test_inference_disabled_no_error() {
 
     // Parse the source
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse should succeed");
 

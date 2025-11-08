@@ -1,0 +1,90 @@
+# Example 29: Migration from Old Code
+# Shows how to update code to use ownership system
+
+# OLD CODE (without ownership checking):
+# Functions implicitly copied data, causing performance issues
+
+# OLD: Implicit copy (expensive for large data)
+# chant process_data_old(data as List<Number>) then
+#     # Data is copied here (wasteful!)
+#     for each item in data then
+#         VGA.write(to_text(item))
+#     end
+# end
+
+# NEW: Explicit borrowing (zero-copy, efficient)
+chant process_data_new(borrow data as List<Number>) then
+    # Data is borrowed (no copy!)
+    for each item in borrow data then
+        VGA.write(to_text(item))
+    end
+end
+
+# OLD: Functions that modified parameters returned new copies
+# chant add_item_old(data as List<Number>, item as Number) -> List<Number> then
+#     # Create copy, modify it, return it
+#     bind copy to data.replicate()
+#     copy.push(item)
+#     yield copy
+# end
+
+# NEW: Mutable borrow for in-place modification
+chant add_item_new(borrow mut data as List<Number>, item as Number) then
+    # Modify in place (efficient!)
+    data.push(item)
+end
+
+# OLD: Returning data that might be invalid
+# chant get_first_old(data as List<Number>) -> Number then
+#     yield data[0]  # What if list is empty?
+# end
+
+# NEW: Use Maybe/Option for safety
+chant get_first_new(borrow data as List<Number>) -> Maybe<Number> then
+    should data.length() > 0 then
+        yield Present(data[0])
+    otherwise
+        yield Absent
+    end
+end
+
+# Migration strategy:
+#
+# Step 1: Identify functions that don't need to modify data
+#         -> Change parameters to `borrow`
+#
+# Step 2: Identify functions that do modify data
+#         -> Change parameters to `borrow mut`
+#         -> Remove return value if just returning modified input
+#
+# Step 3: Add lifetime annotations where needed
+#         -> Usually only for functions returning borrowed data
+#
+# Step 4: Handle error cases with Maybe/Outcome
+#         -> Replace functions that might fail with Result types
+
+# Example: Before and after migration
+bind data to [1, 2, 3, 4, 5]
+
+# NEW approach (efficient):
+VGA.write("Processing (borrowed):")
+process_data_new(borrow data)  # No copy
+
+add_item_new(borrow mut data, 6)  # In-place modification
+VGA.write("After adding: " + to_text(data))
+
+match get_first_new(borrow data) with
+    when Present(first) then
+        VGA.write("First element: " + to_text(first))
+    when Absent then
+        VGA.write("List is empty")
+end
+
+# Benefits of migration:
+# 1. Better performance (fewer copies)
+# 2. Clearer ownership semantics
+# 3. Compile-time safety (no use-after-free)
+# 4. Explicit about data modifications
+# 5. Memory safety without garbage collection
+
+VGA.write("Migration complete!")

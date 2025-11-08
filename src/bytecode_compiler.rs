@@ -17,6 +17,7 @@
 
 use crate::ast::{AstNode, BinaryOperator, UnaryOperator};
 use crate::bytecode::{BytecodeChunk, Constant, Instruction, Register, ConstantId};
+use crate::source_location::SourceSpan;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
@@ -143,7 +144,7 @@ impl BytecodeCompiler {
     /// Compile a statement (returns register containing result, or None)
     fn compile_stmt(&mut self, node: &AstNode) -> CompileResult<Option<Register>> {
         match node {
-            AstNode::BindStmt { name, typ: _, value } => {
+            AstNode::BindStmt { name, typ: _, value, .. } => {
                 // Compile the value expression
                 let value_reg = self.compile_expr(value)?;
 
@@ -166,16 +167,17 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::WeaveStmt { name, typ: _, value } => {
+            AstNode::WeaveStmt { name, typ: _, value, .. } => {
                 // Same as bind for now (mutability handled at runtime)
                 self.compile_stmt(&AstNode::BindStmt {
                     name: name.clone(),
                     typ: None,
                     value: value.clone(),
+                    span: SourceSpan::default(),
                 })
             }
 
-            AstNode::SetStmt { name, value } => {
+            AstNode::SetStmt { name, value, .. } => {
                 // Compile the value
                 let value_reg = self.compile_expr(value)?;
 
@@ -200,7 +202,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 // Compile condition
                 let cond_reg = self.compile_expr(condition)?;
 
@@ -237,7 +239,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::WhileStmt { condition, body } => {
+            AstNode::WhileStmt { condition, body, .. } => {
                 let loop_start = self.chunk.offset();
 
                 // Compile condition
@@ -265,7 +267,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::MatchStmt { value, arms } => {
+            AstNode::MatchStmt { value, arms, .. } => {
                 use crate::ast::Pattern;
 
                 // Compile the value to match against
@@ -465,7 +467,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::ChantDef { name, params, return_type: _, body, .. } => {
+            AstNode::ChantDef { name, params, return_type: _, body, lifetime_params: _, .. } => {
                 // For now, create a simple inline function
                 // Store function entry point for TCO and function table
                 let old_function = self.current_function.clone();
@@ -514,7 +516,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::FormDef { name, fields, .. } => {
+            AstNode::FormDef { name, fields, type_params: _, .. } => {
                 // Create struct definition as a constant
                 let struct_def_id = self.chunk.add_constant(Constant::StructDef {
                     name: name.clone(),
@@ -540,10 +542,10 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::YieldStmt { value } => {
+            AstNode::YieldStmt { value, .. } => {
                 // Check for tail call (yield f(args) where f is current function)
                 if let AstNode::Call { callee, args, .. } = value.as_ref() {
-                    if let AstNode::Ident(func_name) = callee.as_ref() {
+                    if let AstNode::Ident { name: func_name, .. } = callee.as_ref() {
                         if Some(func_name) == self.current_function.as_ref() {
                             // This is a tail call! Use TCO.
                             // Evaluate arguments
@@ -581,7 +583,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::AttemptStmt { body, handlers } => {
+            AstNode::AttemptStmt { body, handlers, .. } => {
                 // Setup exception handler
                 // Emit SetupTry with placeholder offset (will be patched)
                 self.emit(Instruction::SetupTry { handler_offset: 0 }, 0);
@@ -687,7 +689,7 @@ impl BytecodeCompiler {
                 Ok(None)
             }
 
-            AstNode::RequestStmt { capability, justification } => {
+            AstNode::RequestStmt { capability, justification, .. } => {
                 // Capability request: Create a capability token
                 //
                 // Extract the resource name from the capability expression
@@ -710,14 +712,14 @@ impl BytecodeCompiler {
                 Ok(Some(dest))
             }
 
-            AstNode::ExprStmt(expr) => {
+            AstNode::ExprStmt { expr, .. } => {
                 let reg = self.compile_expr(expr)?;
                 // Don't free the register - return it as the result
                 Ok(Some(reg))
             }
 
             // === Module System (Phase 5: Bytecode VM Support) ===
-            AstNode::ModuleDecl { name, body: _, exports: _ } => {
+            AstNode::ModuleDecl { name, body: _, exports: _, .. } => {
                 // Module declarations in bytecode compilation require multi-file compilation
                 // For Phase 5, we treat this as unsupported in single-chunk compilation
                 // Future: Implement module-level compilation units
@@ -727,7 +729,7 @@ impl BytecodeCompiler {
                 )))
             }
 
-            AstNode::Import { module_name, path, items: _, alias: _ } => {
+            AstNode::Import { module_name, path, items: _, alias: _, .. } => {
                 // Module imports require runtime module resolution
                 // For Phase 5, we treat this as unsupported
                 // Future: Integrate with ModuleResolver for bytecode
@@ -737,7 +739,7 @@ impl BytecodeCompiler {
                 )))
             }
 
-            AstNode::Export { items } => {
+            AstNode::Export { items, .. } => {
                 // Export statements are no-ops in the compiler
                 // Exports are tracked during ModuleDecl processing
                 // Since ModuleDecl is not yet supported, this is also unsupported
@@ -759,33 +761,33 @@ impl BytecodeCompiler {
     /// Compile an expression (returns register containing result)
     fn compile_expr(&mut self, node: &AstNode) -> CompileResult<Register> {
         match node {
-            AstNode::Number(n) => {
+            AstNode::Number { value, .. } => {
                 let reg = self.alloc_register()?;
-                let const_id = self.chunk.add_constant(Constant::Number(*n));
+                let const_id = self.chunk.add_constant(Constant::Number(*value));
                 self.emit(Instruction::LoadConst { dest: reg, constant_id: const_id }, 0);
                 Ok(reg)
             }
 
-            AstNode::Text(s) => {
+            AstNode::Text { value, .. } => {
                 let reg = self.alloc_register()?;
-                let const_id = self.chunk.add_constant(Constant::Text(s.clone()));
+                let const_id = self.chunk.add_constant(Constant::Text(value.clone()));
                 self.emit(Instruction::LoadConst { dest: reg, constant_id: const_id }, 0);
                 Ok(reg)
             }
 
-            AstNode::Truth(b) => {
+            AstNode::Truth { value, .. } => {
                 let reg = self.alloc_register()?;
-                self.emit(Instruction::LoadTruth { dest: reg, value: *b }, 0);
+                self.emit(Instruction::LoadTruth { dest: reg, value: *value }, 0);
                 Ok(reg)
             }
 
-            AstNode::Nothing => {
+            AstNode::Nothing { .. } => {
                 let reg = self.alloc_register()?;
                 self.emit(Instruction::LoadNothing { dest: reg }, 0);
                 Ok(reg)
             }
 
-            AstNode::Ident(name) => {
+            AstNode::Ident { name, .. } => {
                 let reg = self.alloc_register()?;
                 let location = self.resolve_variable(name)?;
 
@@ -812,15 +814,15 @@ impl BytecodeCompiler {
                 Ok(reg)
             }
 
-            AstNode::BinaryOp { left, op, right } => {
+            AstNode::BinaryOp { left, op, right, .. } => {
                 self.compile_binary_op(left, *op, right)
             }
 
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 self.compile_unary_op(*op, operand)
             }
 
-            AstNode::List(elements) => {
+            AstNode::List { elements, .. } => {
                 // Compile all elements into consecutive registers
                 let start_reg = self.next_register;
                 let mut regs = Vec::new();
@@ -846,12 +848,12 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::Map(fields) => {
+            AstNode::Map { entries, .. } => {
                 let dest_reg = self.alloc_register()?;
                 self.emit(Instruction::CreateMap { dest: dest_reg }, 0);
 
                 // Set each field
-                for (field_name, value_node) in fields {
+                for (field_name, value_node) in entries {
                     let value_reg = self.compile_expr(value_node)?;
                     let field_id = self.add_string_constant(field_name.clone());
                     self.emit(Instruction::SetField {
@@ -865,7 +867,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::IndexAccess { object, index } => {
+            AstNode::IndexAccess { object, index, .. } => {
                 let list_reg = self.compile_expr(object)?;
                 let index_reg = self.compile_expr(index)?;
                 let dest_reg = self.alloc_register()?;
@@ -882,7 +884,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::FieldAccess { object, field } => {
+            AstNode::FieldAccess { object, field, .. } => {
                 let map_reg = self.compile_expr(object)?;
                 let field_id = self.add_string_constant(field.clone());
                 let dest_reg = self.alloc_register()?;
@@ -929,7 +931,7 @@ impl BytecodeCompiler {
             }
 
             // Enum constructors
-            AstNode::Triumph(value) => {
+            AstNode::Triumph { value, .. } => {
                 let value_reg = self.compile_expr(value)?;
                 let dest_reg = self.alloc_register()?;
                 self.emit(Instruction::CreateTriumph {
@@ -940,7 +942,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::Mishap(value) => {
+            AstNode::Mishap { value, .. } => {
                 let value_reg = self.compile_expr(value)?;
                 let dest_reg = self.alloc_register()?;
                 self.emit(Instruction::CreateMishap {
@@ -951,7 +953,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::Present(value) => {
+            AstNode::Present { value, .. } => {
                 let value_reg = self.compile_expr(value)?;
                 let dest_reg = self.alloc_register()?;
                 self.emit(Instruction::CreatePresent {
@@ -962,7 +964,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::Absent => {
+            AstNode::Absent { .. } => {
                 let dest_reg = self.alloc_register()?;
                 self.emit(Instruction::CreateAbsent {
                     dest: dest_reg,
@@ -970,7 +972,7 @@ impl BytecodeCompiler {
                 Ok(dest_reg)
             }
 
-            AstNode::StructLiteral { struct_name, fields, .. } => {
+            AstNode::StructLiteral { struct_name, fields, type_args: _, .. } => {
                 // Look up the struct definition (it should be a global)
                 // For now, we'll use the struct name as a constant ID reference
                 let struct_def_id = self.chunk.add_constant(Constant::Text(struct_name.clone()));
@@ -1004,7 +1006,7 @@ impl BytecodeCompiler {
             }
 
             //  === Module System (Phase 5: Bytecode VM Support) ===
-            AstNode::ModuleAccess { module, member } => {
+            AstNode::ModuleAccess { module, member, .. } => {
                 // For Phase 5, we handle module-qualified access as global variable lookup
                 // The qualified name "Module.member" is stored as a global variable
                 // This matches the interpreter's approach for imported symbols
@@ -1136,14 +1138,14 @@ impl BytecodeCompiler {
     /// Convert AST node to string representation (for capability requests)
     fn node_to_string(&self, node: &AstNode) -> String {
         match node {
-            AstNode::Ident(name) => name.clone(),
-            AstNode::FieldAccess { object, field } => {
+            AstNode::Ident { name, .. } => name.clone(),
+            AstNode::FieldAccess { object, field, .. } => {
                 format!("{}.{}", self.node_to_string(object), field)
             }
-            AstNode::Number(n) => n.to_string(),
-            AstNode::Text(s) => s.clone(),
-            AstNode::Truth(b) => b.to_string(),
-            AstNode::Nothing => "nothing".to_string(),
+            AstNode::Number { value, .. } => value.to_string(),
+            AstNode::Text { value, .. } => value.clone(),
+            AstNode::Truth { value, .. } => value.to_string(),
+            AstNode::Nothing { .. } => "nothing".to_string(),
             _ => "<expression>".to_string(),
         }
     }
@@ -1174,7 +1176,7 @@ mod tests {
 
     fn compile_source(source: &str) -> CompileResult<BytecodeChunk> {
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Parse failed");
         compile(&ast)
@@ -1357,6 +1359,7 @@ offer add, mul
             AstNode::ModuleAccess {
                 module: "Math".to_string(),
                 member: "add".to_string(),
+                span: SourceSpan::default(),
             }
         ];
 

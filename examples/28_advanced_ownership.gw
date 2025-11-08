@@ -1,0 +1,133 @@
+# Example 28: Advanced Ownership Patterns
+# Demonstrates sophisticated ownership techniques
+
+# Pattern 1: Option and Result with ownership
+chant safe_divide(a as Number, b as Number) -> Outcome<Number, Text> then
+    should b is 0 then
+        yield Mishap("Division by zero")
+    otherwise
+        yield Triumph(a / b)
+    end
+end
+
+chant find_first(list as List<Number>, target as Number) -> Maybe<Number> then
+    for each item in list then
+        should item is target then
+            yield Present(item)
+        end
+    end
+    yield Absent
+end
+
+# Pattern 2: Builder pattern with method chaining
+form QueryBuilder with
+    table as Text
+    filters as List<Text>
+    limit as Maybe<Number>
+end
+
+chant new_query(table as Text) -> QueryBuilder then
+    yield QueryBuilder {
+        table: table,
+        filters: [],
+        limit: Absent
+    }
+end
+
+chant add_filter(builder as QueryBuilder, filter as Text) -> QueryBuilder then
+    # Take ownership, modify, return new ownership
+    builder.filters.push(filter)
+    yield builder
+end
+
+chant with_limit(builder as QueryBuilder, n as Number) -> QueryBuilder then
+    set builder.limit to Present(n)
+    yield builder
+end
+
+chant execute(builder as QueryBuilder) -> Text then
+    bind query to "SELECT * FROM " + builder.table
+    for each filter in builder.filters then
+        set query to query + " WHERE " + filter
+    end
+    match builder.limit with
+        when Present(n) then
+            set query to query + " LIMIT " + to_text(n)
+        when Absent then
+            # No limit
+    end
+    yield query
+end
+
+# Pattern 3: Smart pointers (conceptual - not fully implemented)
+form Box<T> with
+    value as T
+end
+
+chant box(value as T) -> Box<T> then
+    yield Box { value: value }
+end
+
+chant unbox<T>(b as Box<T>) -> T then
+    yield b.value
+end
+
+# Pattern 4: Iterator pattern
+form Iter<'span> with
+    data as borrow 'span List<Number>
+    index as Number
+end
+
+chant new_iter<'span>(borrow 'span list as List<Number>) -> Iter<'span> then
+    yield Iter {
+        data: borrow list,
+        index: 0
+    }
+end
+
+chant next(borrow mut iter as Iter<'span>) -> Maybe<Number> then
+    should iter.index < iter.data.length() then
+        bind value to iter.data[iter.index]
+        set iter.index to iter.index + 1
+        yield Present(value)
+    otherwise
+        yield Absent
+    end
+end
+
+# Usage examples
+VGA.write("=== Result/Option Patterns ===")
+match safe_divide(10, 2) with
+    when Triumph(result) then
+        VGA.write("10 / 2 = " + to_text(result))
+    when Mishap(error) then
+        VGA.write("Error: " + error)
+end
+
+bind nums to [5, 10, 15, 20]
+match find_first(nums, 15) with
+    when Present(value) then
+        VGA.write("Found: " + to_text(value))
+    when Absent then
+        VGA.write("Not found")
+end
+
+VGA.write("=== Builder Pattern ===")
+bind query to new_query("users")
+    .add_filter("age > 21")
+    .add_filter("active = true")
+    .with_limit(10)
+bind sql to execute(query)
+VGA.write("Query: " + sql)
+
+VGA.write("=== Iterator Pattern ===")
+bind data to [1, 2, 3, 4, 5]
+weave it as new_iter(borrow data)
+whilst true then
+    match next(borrow mut it) with
+        when Present(value) then
+            VGA.write("Item: " + to_text(value))
+        when Absent then
+            break
+    end
+end

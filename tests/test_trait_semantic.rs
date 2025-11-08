@@ -5,7 +5,7 @@ use glimmer_weave::{Lexer, Parser, SemanticAnalyzer};
 
 fn analyze_source(source: &str) -> Result<(), Vec<String>> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| vec![format!("Parse error: {:?}", e)])?;

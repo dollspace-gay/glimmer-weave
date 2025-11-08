@@ -1,0 +1,26 @@
+# Example 20: Ownership Basics
+# Demonstrates basic ownership and move semantics
+
+# Create an owned value
+bind data to [1, 2, 3]
+VGA.write("Original data: " + to_text(data))
+
+# MOVE: Transfer ownership
+bind moved to data
+VGA.write("Moved data: " + to_text(moved))
+
+# ERROR: Cannot use data after move
+# data.length()  # Compile error: value was moved
+
+# Copy types (Number, Truth) are automatically copied, not moved
+bind x to 42
+bind y to x
+VGA.write("x: " + to_text(x) + ", y: " + to_text(y))  # Both valid
+
+# Explicit cloning for move types
+bind original to [4, 5, 6]
+bind copy to original.replicate()  # Deep copy
+original.push(7)
+copy.push(8)
+VGA.write("Original: " + to_text(original))  # [4, 5, 6, 7]
+VGA.write("Copy: " + to_text(copy))          # [4, 5, 6, 8]

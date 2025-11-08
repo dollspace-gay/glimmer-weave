@@ -128,10 +128,10 @@ impl Monomorphizer {
     /// Recursively find instantiations in a node
     fn find_instantiations_in_node(&mut self, node: &AstNode) {
         match node {
-            AstNode::Call { callee, type_args, args } => {
+            AstNode::Call { callee, type_args, args, .. } => {
                 // If this is a call with type arguments to a generic function
                 if !type_args.is_empty() {
-                    if let AstNode::Ident(func_name) = &**callee {
+                    if let AstNode::Ident { name: func_name, .. } = &**callee {
                         if self.generic_functions.contains_key(func_name) {
                             let type_arg_names: Vec<String> = type_args
                                 .iter()
@@ -165,7 +165,7 @@ impl Monomorphizer {
                 self.find_instantiations_in_node(operand);
             }
 
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 self.find_instantiations_in_node(condition);
                 for stmt in then_branch {
                     self.find_instantiations_in_node(stmt);
@@ -177,7 +177,7 @@ impl Monomorphizer {
                 }
             }
 
-            AstNode::WhileStmt { condition, body } |
+            AstNode::WhileStmt { condition, body, .. } |
             AstNode::ForStmt { iterable: condition, body, .. } => {
                 self.find_instantiations_in_node(condition);
                 for stmt in body {
@@ -188,12 +188,15 @@ impl Monomorphizer {
             AstNode::BindStmt { value, .. } |
             AstNode::WeaveStmt { value, .. } |
             AstNode::SetStmt { value, .. } |
-            AstNode::YieldStmt { value } |
-            AstNode::ExprStmt(value) => {
+            AstNode::YieldStmt { value, .. } => {
                 self.find_instantiations_in_node(value);
             }
 
-            AstNode::List(elements) => {
+            AstNode::ExprStmt { expr, .. } => {
+                self.find_instantiations_in_node(expr);
+            }
+
+            AstNode::List { elements, .. } => {
                 for elem in elements {
                     self.find_instantiations_in_node(elem);
                 }
@@ -205,13 +208,13 @@ impl Monomorphizer {
                 }
             }
 
-            AstNode::Block(stmts) => {
-                for stmt in stmts {
+            AstNode::Block { statements, .. } => {
+                for stmt in statements {
                     self.find_instantiations_in_node(stmt);
                 }
             }
 
-            AstNode::Try { expr } => {
+            AstNode::Try { expr, .. } => {
                 self.find_instantiations_in_node(expr);
             }
 
@@ -246,6 +249,19 @@ fn monomorphize_type_annotation_to_string(ann: &TypeAnnotation) -> String {
         TypeAnnotation::Optional(inner) => {
             format!("Optional_{}", monomorphize_type_annotation_to_string(inner))
         }
+        TypeAnnotation::Borrowed { lifetime, inner, mutable } => {
+            let lifetime_str = lifetime
+                .as_ref()
+                .map(|lt| format!("_{}", lt.name))
+                .unwrap_or_default();
+            let mut_str = if *mutable { "_mut" } else { "" };
+            format!(
+                "Borrowed{}{}_{}",
+                lifetime_str,
+                mut_str,
+                monomorphize_type_annotation_to_string(inner)
+            )
+        }
     }
 }
 
@@ -279,9 +295,11 @@ impl Monomorphizer {
         if let AstNode::ChantDef {
             name: _,
             type_params,
+            lifetime_params,
             params,
             return_type,
             body,
+            span,
         } = generic_def
         {
             // Build substitution map: type parameter -> concrete type
@@ -297,6 +315,8 @@ impl Monomorphizer {
                     name: p.name.clone(),
                     typ: p.typ.as_ref().map(|t| self.substitute_type_annotation(t, &substitutions)),
                     is_variadic: p.is_variadic,
+                    borrow_mode: p.borrow_mode.clone(),
+                    lifetime: p.lifetime.clone(),
                 })
                 .collect();
 
@@ -309,9 +329,11 @@ impl Monomorphizer {
             AstNode::ChantDef {
                 name: specialized_name.to_string(),
                 type_params: vec![], // No type parameters in specialized version
+                lifetime_params: lifetime_params.clone(),
                 params: specialized_params,
                 return_type: specialized_return,
                 body: body.clone(), // Body doesn't need type substitution
+                span: span.clone(),
             }
         } else {
             panic!("Expected ChantDef");
@@ -366,6 +388,13 @@ fn substitute_type_annotation_helper(
         TypeAnnotation::Optional(inner) => {
             TypeAnnotation::Optional(Box::new(substitute_type_annotation_helper(inner, substitutions)))
         }
+        TypeAnnotation::Borrowed { lifetime, inner, mutable } => {
+            TypeAnnotation::Borrowed {
+                lifetime: lifetime.clone(),
+                inner: Box::new(substitute_type_annotation_helper(inner, substitutions)),
+                mutable: *mutable,
+            }
+        }
         // Named, Map don't need substitution
         _ => ann.clone(),
     }
@@ -376,10 +405,10 @@ impl Monomorphizer {
     /// Transform a node, replacing generic calls with calls to specialized versions
     fn transform_node(&self, node: &AstNode) -> AstNode {
         match node {
-            AstNode::Call { callee, type_args, args } => {
+            AstNode::Call { callee, type_args, args, span } => {
                 // Check if this is a call to a generic function
                 if !type_args.is_empty() {
-                    if let AstNode::Ident(func_name) = &**callee {
+                    if let AstNode::Ident { name: func_name, .. } = &**callee {
                         let type_arg_names: Vec<String> = type_args
                             .iter()
                             .map(|ta| self.type_annotation_to_string(ta))
@@ -393,9 +422,13 @@ impl Monomorphizer {
                         if let Some(specialized_name) = self.instantiations.get(&instantiation) {
                             // Replace with call to specialized function
                             return AstNode::Call {
-                                callee: Box::new(AstNode::Ident(specialized_name.clone())),
+                                callee: Box::new(AstNode::Ident {
+                                    name: specialized_name.clone(),
+                                    span: span.clone(),
+                                }),
                                 type_args: vec![], // No type args in specialized call
                                 args: args.iter().map(|arg| self.transform_node(arg)).collect(),
+                                span: span.clone(),
                             };
                         }
                     }
@@ -406,54 +439,67 @@ impl Monomorphizer {
                     callee: Box::new(self.transform_node(callee)),
                     type_args: type_args.clone(),
                     args: args.iter().map(|arg| self.transform_node(arg)).collect(),
+                    span: span.clone(),
                 }
             }
 
             // Transform other nodes recursively
-            AstNode::BinaryOp { left, op, right } => AstNode::BinaryOp {
+            AstNode::BinaryOp { left, op, right, span } => AstNode::BinaryOp {
                 left: Box::new(self.transform_node(left)),
                 op: *op,
                 right: Box::new(self.transform_node(right)),
+                span: span.clone(),
             },
 
-            AstNode::UnaryOp { op, operand } => AstNode::UnaryOp {
+            AstNode::UnaryOp { op, operand, span } => AstNode::UnaryOp {
                 op: *op,
                 operand: Box::new(self.transform_node(operand)),
+                span: span.clone(),
             },
 
-            AstNode::BindStmt { name, typ, value } => AstNode::BindStmt {
+            AstNode::BindStmt { name, typ, value, span } => AstNode::BindStmt {
                 name: name.clone(),
                 typ: typ.clone(),
                 value: Box::new(self.transform_node(value)),
+                span: span.clone(),
             },
 
-            AstNode::WeaveStmt { name, typ, value } => AstNode::WeaveStmt {
+            AstNode::WeaveStmt { name, typ, value, span } => AstNode::WeaveStmt {
                 name: name.clone(),
                 typ: typ.clone(),
                 value: Box::new(self.transform_node(value)),
+                span: span.clone(),
             },
 
-            AstNode::SetStmt { name, value } => AstNode::SetStmt {
+            AstNode::SetStmt { name, value, span } => AstNode::SetStmt {
                 name: name.clone(),
                 value: Box::new(self.transform_node(value)),
+                span: span.clone(),
             },
 
-            AstNode::YieldStmt { value } => AstNode::YieldStmt {
+            AstNode::YieldStmt { value, span } => AstNode::YieldStmt {
                 value: Box::new(self.transform_node(value)),
+                span: span.clone(),
             },
 
-            AstNode::ExprStmt(expr) => AstNode::ExprStmt(Box::new(self.transform_node(expr))),
-
-            AstNode::List(elements) => AstNode::List(
-                elements.iter().map(|elem| self.transform_node(elem)).collect()
-            ),
-
-            AstNode::Block(stmts) => AstNode::Block(
-                stmts.iter().map(|stmt| self.transform_node(stmt)).collect()
-            ),
-
-            AstNode::Try { expr } => AstNode::Try {
+            AstNode::ExprStmt { expr, span } => AstNode::ExprStmt {
                 expr: Box::new(self.transform_node(expr)),
+                span: span.clone(),
+            },
+
+            AstNode::List { elements, span } => AstNode::List {
+                elements: elements.iter().map(|elem| self.transform_node(elem)).collect(),
+                span: span.clone(),
+            },
+
+            AstNode::Block { statements, span } => AstNode::Block {
+                statements: statements.iter().map(|stmt| self.transform_node(stmt)).collect(),
+                span: span.clone(),
+            },
+
+            AstNode::Try { expr, span } => AstNode::Try {
+                expr: Box::new(self.transform_node(expr)),
+                span: span.clone(),
             },
 
             // ChantDef is not transformed here (handled separately)
@@ -493,25 +539,46 @@ mod tests {
 
     #[test]
     fn test_monomorphize_simple_identity() {
+        use crate::source_location::SourceSpan;
+        let dummy_span = SourceSpan::default();
+
         let ast = vec![
             AstNode::ChantDef {
                 name: "identity".to_string(),
                 type_params: vec!["T".to_string()],
+                lifetime_params: vec![],
                 params: vec![Parameter {
                     name: "x".to_string(),
                     typ: Some(TypeAnnotation::Generic("T".to_string())),
                     is_variadic: false,
+                    borrow_mode: BorrowMode::Owned,
+                    lifetime: None,
                 }],
                 return_type: Some(TypeAnnotation::Generic("T".to_string())),
                 body: vec![AstNode::YieldStmt {
-                    value: Box::new(AstNode::Ident("x".to_string())),
+                    value: Box::new(AstNode::Ident {
+                        name: "x".to_string(),
+                        span: dummy_span.clone(),
+                    }),
+                    span: dummy_span.clone(),
                 }],
+                span: dummy_span.clone(),
             },
-            AstNode::ExprStmt(Box::new(AstNode::Call {
-                callee: Box::new(AstNode::Ident("identity".to_string())),
-                type_args: vec![TypeAnnotation::Named("Number".to_string())],
-                args: vec![AstNode::Number(42.0)],
-            })),
+            AstNode::ExprStmt {
+                expr: Box::new(AstNode::Call {
+                    callee: Box::new(AstNode::Ident {
+                        name: "identity".to_string(),
+                        span: dummy_span.clone(),
+                    }),
+                    type_args: vec![TypeAnnotation::Named("Number".to_string())],
+                    args: vec![AstNode::Number {
+                        value: 42.0,
+                        span: dummy_span.clone(),
+                    }],
+                    span: dummy_span.clone(),
+                }),
+                span: dummy_span.clone(),
+            },
         ];
 
         let mut mono = Monomorphizer::new();
@@ -530,9 +597,9 @@ mod tests {
         }
 
         // Second should be transformed call
-        if let AstNode::ExprStmt(expr) = &result[1] {
+        if let AstNode::ExprStmt { expr, .. } = &result[1] {
             if let AstNode::Call { callee, type_args, .. } = &**expr {
-                if let AstNode::Ident(name) = &**callee {
+                if let AstNode::Ident { name, .. } = &**callee {
                     assert_eq!(name, "identity_Number");
                     assert!(type_args.is_empty());
                 } else {

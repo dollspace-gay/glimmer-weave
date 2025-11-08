@@ -24,6 +24,7 @@ use alloc::vec::Vec;
 use alloc::format;
 use crate::ast::*;
 use crate::native_runtime::NativeRuntime;
+use crate::source_location::SourceSpan;
 
 /// x86-64 register
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,7 +310,7 @@ impl CodeGen {
     /// Generate code for a statement
     fn gen_statement(&mut self, node: &AstNode) -> Result<(), String> {
         match node {
-            AstNode::BindStmt { name, typ: _, value } | AstNode::WeaveStmt { name, typ: _, value } => {
+            AstNode::BindStmt { name, typ: _, value, ..  } | AstNode::WeaveStmt { name, typ: _, value, .. } => {
                 // Evaluate expression into rax
                 self.gen_expr(value)?;
 
@@ -323,7 +324,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::SetStmt { name, value } => {
+            AstNode::SetStmt { name, value, ..  } => {
                 // Evaluate expression into rax
                 self.gen_expr(value)?;
 
@@ -338,7 +339,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 // Generate unique labels
                 let else_label = format!(".L_else_{}", self.label_counter);
                 let end_label = format!(".L_if_end_{}", self.label_counter);
@@ -384,7 +385,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::WhileStmt { condition, body } => {
+            AstNode::WhileStmt { condition, body, ..  } => {
                 // Generate unique labels
                 let start_label = format!(".L_while_start_{}", self.label_counter);
                 let end_label = format!(".L_while_end_{}", self.label_counter);
@@ -419,7 +420,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::MatchStmt { value, arms } => {
+            AstNode::MatchStmt { value, arms, ..  } => {
                 use crate::ast::Pattern;
 
                 // Generate unique labels for match arms
@@ -620,7 +621,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::ChantDef { name, params, return_type: _, body, .. } => {
+            AstNode::ChantDef { name, params, return_type: _, body, ..  } => {
                 // Generate function with TCO support
                 let old_function = self.current_function.clone();
                 let old_label = self.function_entry_label.clone();
@@ -677,10 +678,10 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::YieldStmt { value } => {
+            AstNode::YieldStmt { value, ..  } => {
                 // Check for tail call (yield f(args) where f is current function)
                 if let AstNode::Call { callee, args, .. } = value.as_ref() {
-                    if let AstNode::Ident(func_name) = callee.as_ref() {
+                    if let AstNode::Ident { name: func_name, .. } = callee.as_ref() {
                         if Some(func_name) == self.current_function.as_ref() {
                             // This is a tail call! Use TCO.
                             // Evaluate arguments
@@ -718,7 +719,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::AttemptStmt { body, handlers } => {
+            AstNode::AttemptStmt { body, handlers, .. } => {
                 // Generate unique labels
                 let attempt_id = self.label_counter;
                 self.label_counter += 1;
@@ -787,7 +788,7 @@ impl CodeGen {
 
             // === Module System (Phase 6: Native Codegen Support) ===
 
-            AstNode::ModuleDecl { name, body: _, exports: _ } => {
+            AstNode::ModuleDecl { name, body: _, exports: _, ..  } => {
                 // Module declarations in native codegen require multi-file compilation
                 // and symbol export/import mechanisms at the assembly level.
                 //
@@ -807,7 +808,7 @@ impl CodeGen {
                 ))
             }
 
-            AstNode::Import { module_name, path, items: _, alias: _ } => {
+            AstNode::Import { module_name, path, items: _, alias: _, ..  } => {
                 // Module imports in native codegen require runtime module resolution
                 // and dynamic symbol binding.
                 //
@@ -827,7 +828,7 @@ impl CodeGen {
                 ))
             }
 
-            AstNode::Export { items } => {
+            AstNode::Export { items, ..  } => {
                 // Export statements in native codegen require symbol export mechanisms
                 // at the assembly level (.global directives).
                 //
@@ -863,7 +864,7 @@ impl CodeGen {
                      (Requires runtime object creation which is not yet implemented)".to_string())
             }
 
-            AstNode::ExprStmt(expr) => {
+            AstNode::ExprStmt { expr, .. } => {
                 self.gen_expr(expr)?;
                 Ok(())
             }
@@ -879,7 +880,7 @@ impl CodeGen {
     /// Generate code for an expression (result in rax)
     fn gen_expr(&mut self, node: &AstNode) -> Result<(), String> {
         match node {
-            AstNode::Number(n) => {
+            AstNode::Number { value: n, .. } => {
                 // Load immediate value into rax
                 self.emit(Instruction::Mov(
                     format!("${}", *n as i64),
@@ -888,7 +889,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::Ident(name) => {
+            AstNode::Ident { name, .. } => {
                 // Load variable from stack into rax
                 let offset = self.get_var(name)
                     .ok_or_else(|| format!("Undefined variable: {}", name))?;
@@ -899,7 +900,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::BinaryOp { left, op, right } => {
+            AstNode::BinaryOp { left, op, right, ..  } => {
                 // Evaluate left operand into rax
                 self.gen_expr(left)?;
 
@@ -1115,7 +1116,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 // Evaluate operand into rax
                 self.gen_expr(operand)?;
 
@@ -1154,7 +1155,7 @@ impl CodeGen {
                 }
 
                 // Call the function
-                if let AstNode::Ident(func_name) = callee.as_ref() {
+                if let AstNode::Ident { name: func_name, .. } = callee.as_ref() {
                     let func_label = format!(".L_func_{}", func_name);
                     self.emit(Instruction::Call(func_label));
                 } else {
@@ -1166,7 +1167,7 @@ impl CodeGen {
             }
 
             // Enum constructors - Outcome type
-            AstNode::Triumph(value) => {
+            AstNode::Triumph { value, .. } => {
                 self.emit(Instruction::Comment("Create Triumph variant".to_string()));
 
                 // Evaluate inner value
@@ -1200,7 +1201,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::Mishap(value) => {
+            AstNode::Mishap { value, .. } => {
                 self.emit(Instruction::Comment("Create Mishap variant".to_string()));
 
                 // Evaluate inner value
@@ -1235,7 +1236,7 @@ impl CodeGen {
             }
 
             // Enum constructors - Maybe type
-            AstNode::Present(value) => {
+            AstNode::Present { value, .. } => {
                 self.emit(Instruction::Comment("Create Present variant".to_string()));
 
                 // Evaluate inner value
@@ -1269,19 +1270,19 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::Absent => {
-                self.emit(Instruction::Comment("Create Absent variant".to_string()));
+            AstNode::Absent { .. } => {
+                self.emit(Instruction::Comment("Create Absent { span: SourceSpan::default() } variant".to_string()));
 
                 // Allocate 16 bytes on stack for enum (tag + value)
                 self.stack_offset -= 16;
 
-                // Store tag (0 for Absent) at -8(%rbp)
+                // Store tag (0 for Absent { span: SourceSpan::default() }) at -8(%rbp)
                 self.emit(Instruction::Mov(
                     "$0".to_string(),
                     format!("{}(%rbp)", self.stack_offset + 8)
                 ));
 
-                // Store dummy value (0) at stack_offset(%rbp) - not used for Absent
+                // Store dummy value (0) at stack_offset(%rbp) - not used for Absent { span: SourceSpan::default() }
                 self.emit(Instruction::Mov(
                     "$0".to_string(),
                     format!("{}(%rbp)", self.stack_offset)
@@ -1349,7 +1350,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::FieldAccess { object, field } => {
+            AstNode::FieldAccess { object, field, .. } => {
                 // Field access on heap-allocated structs
                 self.emit(Instruction::Comment(format!("Field access: .{}", field)));
 
@@ -1391,7 +1392,7 @@ impl CodeGen {
                 Ok(())
             }
 
-            AstNode::Text(s) => {
+            AstNode::Text { value: s, .. } => {
                 // String literal - allocate on heap with length prefix
                 self.emit(Instruction::Comment(format!("String literal: \"{}\"", s)));
 
@@ -1428,7 +1429,7 @@ impl CodeGen {
 
             // === Module System (Phase 6: Native Codegen Support) ===
 
-            AstNode::ModuleAccess { module, member } => {
+            AstNode::ModuleAccess { module, member, ..  } => {
                 // Module-qualified access in native codegen requires runtime symbol resolution
                 // and dynamic name lookup, which is not supported.
                 //
@@ -1494,10 +1495,16 @@ pub fn compile_to_asm(nodes: &[AstNode]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source_location::SourceSpan;
+    use crate::ast::BorrowMode;
+
+    fn span() -> SourceSpan {
+        SourceSpan::unknown()
+    }
 
     #[test]
     fn test_compile_number() {
-        let ast = vec![AstNode::Number(42.0)];
+        let ast = vec![AstNode::Number { value: 42.0, span: span() }];
         let result = compile_to_asm(&ast);
         if let Err(e) = &result {
             eprintln!("Compilation error: {}", e);
@@ -1511,12 +1518,14 @@ mod tests {
     fn test_compile_arithmetic() {
         use AstNode::*;
         use BinaryOperator::*;
+        use crate::source_location::SourceSpan;
 
         // 2 + 3
         let ast = vec![BinaryOp {
-            left: Box::new(Number(2.0)),
+            left: Box::new(Number { value: 2.0, span: span() }),
             op: Add,
-            right: Box::new(Number(3.0)),
+            right: Box::new(Number { value: 3.0, span: span() }),
+            span: SourceSpan::default(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1530,9 +1539,10 @@ mod tests {
 
         // 10 > 5
         let ast = vec![BinaryOp {
-            left: Box::new(Number(10.0)),
+            left: Box::new(Number { value: 10.0, span: span() }),
             op: Greater,
-            right: Box::new(Number(5.0)),
+            right: Box::new(Number { value: 5.0, span: span() }),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1550,9 +1560,10 @@ mod tests {
 
         // 5 is 5
         let ast = vec![BinaryOp {
-            left: Box::new(Number(5.0)),
+            left: Box::new(Number { value: 5.0, span: span() }),
             op: Equal,
-            right: Box::new(Number(5.0)),
+            right: Box::new(Number { value: 5.0, span: span() }),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1570,9 +1581,10 @@ mod tests {
 
         // 1 and 1
         let ast = vec![BinaryOp {
-            left: Box::new(Number(1.0)),
+            left: Box::new(Number { value: 1.0, span: span() }),
             op: And,
-            right: Box::new(Number(1.0)),
+            right: Box::new(Number { value: 1.0, span: span() }),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1590,9 +1602,10 @@ mod tests {
 
         // 10 % 3
         let ast = vec![BinaryOp {
-            left: Box::new(Number(10.0)),
+            left: Box::new(Number { value: 10.0, span: span() }),
             op: Mod,
-            right: Box::new(Number(3.0)),
+            right: Box::new(Number { value: 3.0, span: span() }),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1610,16 +1623,19 @@ mod tests {
         // should 1 > 0 then bind x to 42 end
         let ast = vec![IfStmt {
             condition: Box::new(BinaryOp {
-                left: Box::new(Number(1.0)),
+                left: Box::new(Number { value: 1.0, span: span() }),
                 op: Greater,
-                right: Box::new(Number(0.0)),
+                right: Box::new(Number { value: 0.0, span: span() }),
+                span: span(),
             }),
             then_branch: vec![BindStmt {
                 name: "x".to_string(),
                 typ: None,
-                value: Box::new(Number(42.0)),
+                value: Box::new(Number { value: 42.0, span: span() }),
+                span: span(),
             }],
             else_branch: None,
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1639,20 +1655,24 @@ mod tests {
         // should 0 > 1 then bind x to 1 otherwise bind x to 2 end
         let ast = vec![IfStmt {
             condition: Box::new(BinaryOp {
-                left: Box::new(Number(0.0)),
+                left: Box::new(Number { value: 0.0, span: span() }),
                 op: Greater,
-                right: Box::new(Number(1.0)),
+                right: Box::new(Number { value: 1.0, span: span() }),
+                span: span(),
             }),
             then_branch: vec![BindStmt {
                 name: "x".to_string(),
                 typ: None,
-                value: Box::new(Number(1.0)),
+                value: Box::new(Number { value: 1.0, span: span() }),
+                span: span(),
             }],
             else_branch: Some(vec![BindStmt {
                 name: "x".to_string(),
                 typ: None,
-                value: Box::new(Number(2.0)),
+                value: Box::new(Number { value: 2.0, span: span() }),
+                span: span(),
             }]),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1675,22 +1695,27 @@ mod tests {
             BindStmt {
                 name: "x".to_string(),
                 typ: None,
-                value: Box::new(Number(5.0)),
+                value: Box::new(Number { value: 5.0, span: span() }),
+                span: span(),
             },
             WhileStmt {
                 condition: Box::new(BinaryOp {
-                    left: Box::new(Ident("x".to_string())),
+                    left: Box::new(Ident { name: "x".to_string(), span: SourceSpan::default() }),
                     op: Greater,
-                    right: Box::new(Number(0.0)),
+                    right: Box::new(Number { value: 0.0, span: span() }),
+                    span: span(),
                 }),
                 body: vec![SetStmt {
                     name: "x".to_string(),
                     value: Box::new(BinaryOp {
-                        left: Box::new(Ident("x".to_string())),
+                        left: Box::new(Ident { name: "x".to_string(), span: SourceSpan::default() }),
                         op: Sub,
-                        right: Box::new(Number(1.0)),
+                        right: Box::new(Number { value: 1.0, span: span() }),
+                        span: span(),
                     }),
+                    span: span(),
                 }],
+                span: span(),
             },
         ];
 
@@ -1720,39 +1745,48 @@ mod tests {
         let ast = vec![ChantDef {
             name: "sum_to".to_string(),
             type_params: vec![],
+            lifetime_params: vec![],
             params: vec![
-                Parameter { name: "n".to_string(), typ: None, is_variadic: false },
-                Parameter { name: "acc".to_string(), typ: None, is_variadic: false },
+                Parameter {  name: "n".to_string(), typ: None, is_variadic: false, borrow_mode: BorrowMode::Owned, lifetime: None },
+                Parameter {  name: "acc".to_string(), typ: None, is_variadic: false, borrow_mode: BorrowMode::Owned, lifetime: None },
             ],
             return_type: None,
             body: vec![IfStmt {
                 condition: Box::new(BinaryOp {
-                    left: Box::new(Ident("n".to_string())),
+                    left: Box::new(Ident { name: "n".to_string(), span: SourceSpan::default() }),
                     op: LessEq,
-                    right: Box::new(Number(0.0)),
+                    right: Box::new(Number { value: 0.0, span: span() }),
+                    span: span(),
                 }),
                 then_branch: vec![YieldStmt {
-                    value: Box::new(Ident("acc".to_string())),
+                    value: Box::new(Ident { name: "acc".to_string(), span: SourceSpan::default() }),
+                    span: span(),
                 }],
                 else_branch: Some(vec![YieldStmt {
                     value: Box::new(Call {
-                        callee: Box::new(Ident("sum_to".to_string())),
+                        callee: Box::new(Ident { name: "sum_to".to_string(), span: SourceSpan::default() }),
                         type_args: vec![],
                         args: vec![
                             BinaryOp {
-                                left: Box::new(Ident("n".to_string())),
+                                left: Box::new(Ident { name: "n".to_string(), span: SourceSpan::default() }),
                                 op: Sub,
-                                right: Box::new(Number(1.0)),
+                                right: Box::new(Number { value: 1.0, span: span() }),
+                                span: span(),
                             },
                             BinaryOp {
-                                left: Box::new(Ident("acc".to_string())),
+                                left: Box::new(Ident { name: "acc".to_string(), span: SourceSpan::default() }),
                                 op: Add,
-                                right: Box::new(Ident("n".to_string())),
+                                right: Box::new(Ident { name: "n".to_string(), span: SourceSpan::default() }),
+                                span: span(),
                             },
                         ],
+                        span: span(),
                     }),
+                    span: span(),
                 }]),
+                span: span(),
             }],
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1777,21 +1811,22 @@ mod tests {
         //     otherwise then 999
         // end
         let ast = vec![MatchStmt {
-            value: Box::new(Number(2.0)),
+            value: Box::new(Number { value: 2.0, span: span() }),
             arms: vec![
                 crate::ast::MatchArm {
-                    pattern: crate::ast::Pattern::Literal(Number(1.0)),
-                    body: vec![Number(100.0)],
+                    pattern: crate::ast::Pattern::Literal(Number { value: 1.0, span: span() }),
+                    body: vec![Number { value: 100.0, span: span() }],
                 },
                 crate::ast::MatchArm {
-                    pattern: crate::ast::Pattern::Literal(Number(2.0)),
-                    body: vec![Number(200.0)],
+                    pattern: crate::ast::Pattern::Literal(Number { value: 2.0, span: span() }),
+                    body: vec![Number { value: 200.0, span: span() }],
                 },
                 crate::ast::MatchArm {
                     pattern: crate::ast::Pattern::Wildcard,
-                    body: vec![Number(999.0)],
+                    body: vec![Number { value: 999.0, span: span() }],
                 },
             ],
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1819,17 +1854,19 @@ mod tests {
         //     when n then n * 2
         // end
         let ast = vec![MatchStmt {
-            value: Box::new(Number(42.0)),
+            value: Box::new(Number { value: 42.0, span: span() }),
             arms: vec![
                 crate::ast::MatchArm {
                     pattern: crate::ast::Pattern::Ident("n".to_string()),
                     body: vec![BinaryOp {
-                        left: Box::new(Ident("n".to_string())),
+                        left: Box::new(Ident { name: "n".to_string(), span: SourceSpan::default() }),
                         op: BinaryOperator::Mul,
-                        right: Box::new(Number(2.0)),
+                        right: Box::new(Number { value: 2.0, span: span() }),
+                        span: span(),
                     }],
                 },
             ],
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -1845,7 +1882,7 @@ mod tests {
         use AstNode::*;
 
         // Triumph(42)
-        let ast = vec![Triumph(Box::new(Number(42.0)))];
+        let ast = vec![Triumph { value: Box::new(Number { value: 42.0, span: span() }), span: span() }];
 
         let result = compile_to_asm(&ast);
         assert!(result.is_ok());
@@ -1864,7 +1901,7 @@ mod tests {
         use AstNode::*;
 
         // Mishap(99)
-        let ast = vec![Mishap(Box::new(Number(99.0)))];
+        let ast = vec![Mishap { value: Box::new(Number { value: 99.0, span: span() }), span: span() }];
 
         let result = compile_to_asm(&ast);
         assert!(result.is_ok());
@@ -1883,7 +1920,7 @@ mod tests {
         use AstNode::*;
 
         // Present(123)
-        let ast = vec![Present(Box::new(Number(123.0)))];
+        let ast = vec![Present { value: Box::new(Number { value: 123.0, span: span() }), span: span() }];
 
         let result = compile_to_asm(&ast);
         assert!(result.is_ok());
@@ -1901,15 +1938,15 @@ mod tests {
     fn test_compile_absent_constructor() {
         use AstNode::*;
 
-        // Absent
-        let ast = vec![Absent];
+        // Absent { span: SourceSpan::default() }
+        let ast = vec![Absent { span: SourceSpan::default() }];
 
         let result = compile_to_asm(&ast);
         assert!(result.is_ok());
         let asm = result.unwrap();
 
         // Should contain comment
-        assert!(asm.contains("Create Absent variant"));
+        assert!(asm.contains("Create Absent { span: SourceSpan::default() } variant"));
 
         // Should store tag=0
         assert!(asm.contains("movq $0"));
@@ -1929,26 +1966,28 @@ mod tests {
             BindStmt {
                 name: "result".to_string(),
                 typ: None,
-                value: Box::new(Triumph(Box::new(Number(42.0)))),
+                value: Box::new(Triumph { value: Box::new(Number { value: 42.0, span: span() }), span: span() }),
+                span: span(),
             },
             MatchStmt {
-                value: Box::new(Ident("result".to_string())),
+                value: Box::new(Ident { name: "result".to_string(), span: SourceSpan::default() }),
                 arms: vec![
                     crate::ast::MatchArm {
                         pattern: Pattern::Enum {
                             variant: "Triumph".to_string(),
                             inner: Some(Box::new(Pattern::Ident("x".to_string()))),
                         },
-                        body: vec![Ident("x".to_string())],
+                        body: vec![Ident { name: "x".to_string(), span: SourceSpan::default() }],
                     },
                     crate::ast::MatchArm {
                         pattern: Pattern::Enum {
                             variant: "Mishap".to_string(),
                             inner: Some(Box::new(Pattern::Ident("e".to_string()))),
                         },
-                        body: vec![Number(0.0)],
+                        body: vec![Number { value: 0.0, span: span() }],
                     },
                 ],
+                span: span(),
             },
         ];
 
@@ -1977,16 +2016,17 @@ mod tests {
         // bind option = Present(10)
         // match option with
         //     when Present(n) then n * 2
-        //     when Absent then 0
+        //     when Absent { span: SourceSpan::default() } then 0
         // end
         let ast = vec![
             BindStmt {
                 name: "option".to_string(),
                 typ: None,
-                value: Box::new(Present(Box::new(Number(10.0)))),
+                value: Box::new(Present { value: Box::new(Number { value: 10.0, span: span() }), span: span() }),
+                span: span(),
             },
             MatchStmt {
-                value: Box::new(Ident("option".to_string())),
+                value: Box::new(Ident { name: "option".to_string(), span: SourceSpan::default() }),
                 arms: vec![
                     crate::ast::MatchArm {
                         pattern: Pattern::Enum {
@@ -1994,9 +2034,10 @@ mod tests {
                             inner: Some(Box::new(Pattern::Ident("n".to_string()))),
                         },
                         body: vec![BinaryOp {
-                            left: Box::new(Ident("n".to_string())),
+                            left: Box::new(Ident { name: "n".to_string(), span: SourceSpan::default() }),
                             op: BinaryOperator::Mul,
-                            right: Box::new(Number(2.0)),
+                            right: Box::new(Number { value: 2.0, span: span() }),
+                            span: span(),
                         }],
                     },
                     crate::ast::MatchArm {
@@ -2004,9 +2045,10 @@ mod tests {
                             variant: "Absent".to_string(),
                             inner: None,
                         },
-                        body: vec![Number(0.0)],
+                        body: vec![Number { value: 0.0, span: span() }],
                     },
                 ],
+                span: span(),
             },
         ];
 
@@ -2069,7 +2111,7 @@ mod tests {
         use crate::ast::AstNode::Text;
 
         // Test string literal generates correct code
-        let ast = vec![Text("Hello, World!".to_string())];
+        let ast = vec![Text { value: "Hello, World!".to_string(), span: span() }];
 
         let result = compile_to_asm(&ast);
         assert!(result.is_ok(), "String literal compilation failed: {:?}", result);
@@ -2132,6 +2174,7 @@ mod tests {
             name: "Math".to_string(),
             body: vec![],
             exports: vec!["add".to_string()],
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -2152,6 +2195,7 @@ mod tests {
             path: "std/math.gw".to_string(),
             items: None,
             alias: None,
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -2170,6 +2214,7 @@ mod tests {
         // Export statements should return a clear error
         let ast = vec![AstNode::Export {
             items: vec!["add".to_string(), "mul".to_string()],
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);
@@ -2188,6 +2233,7 @@ mod tests {
         let ast = vec![AstNode::ModuleAccess {
             module: "Math".to_string(),
             member: "add".to_string(),
+            span: span(),
         }];
 
         let result = compile_to_asm(&ast);

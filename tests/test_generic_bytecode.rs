@@ -5,7 +5,7 @@ use glimmer_weave::{Lexer, Parser, bytecode_compiler};
 
 fn compile_source(source: &str) -> Result<(), String> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
 
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;

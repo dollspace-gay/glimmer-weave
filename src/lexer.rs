@@ -24,7 +24,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::token::{Span, Token};
+use crate::token::{Span, Token, PositionedToken};
 
 /// Lexer state for tokenizing Glimmer-Weave source code
 pub struct Lexer {
@@ -174,6 +174,32 @@ impl Lexer {
         // Parse as f64
         let value = num_str.parse::<f64>().unwrap_or(0.0);
         Token::Number(value)
+    }
+
+    /// Read a lifetime annotation (starting with ')
+    fn read_lifetime(&mut self) -> Token {
+        // Skip the opening apostrophe
+        self.advance();
+
+        let start = self.position;
+
+        // Read alphanumeric characters and underscores
+        while let Some(c) = self.current_char {
+            if c.is_alphanumeric() || c == '_' {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        let name: String = self.input[start..self.position].iter().collect();
+
+        if name.is_empty() {
+            // Apostrophe not followed by identifier - treat as unknown
+            Token::Ident("'".to_string())
+        } else {
+            Token::Lifetime(name)
+        }
     }
 
     /// Read an identifier or keyword
@@ -339,6 +365,8 @@ impl Lexer {
             "continue" => Token::Continue,
             "chant" => Token::Chant,
             "yield" => Token::Yield,
+            "borrow" => Token::Borrow,
+            "mut" => Token::Mut,
             "form" => Token::Form,
             "variant" => Token::Variant,
             "aspect" => Token::Aspect,
@@ -383,13 +411,16 @@ impl Lexer {
         }
     }
 
-    /// Get the next token from the input
-    pub fn next_token(&mut self) -> Token {
+    /// Get the next token from the input (with position)
+    pub fn next_token(&mut self) -> PositionedToken {
         // Skip whitespace (but not newlines)
         self.skip_whitespace();
 
+        // Capture the starting position of this token
+        let start_span = self.span();
+
         // Match current character
-        match self.current_char {
+        let token = match self.current_char {
             None => Token::Eof,
 
             Some('\n') => {
@@ -400,7 +431,7 @@ impl Lexer {
             Some('#') => {
                 // Comment - skip to end of line
                 self.skip_comment();
-                self.next_token() // Get next real token
+                return self.next_token(); // Get next real token
             }
 
             Some('"') => self.read_string(),
@@ -529,22 +560,29 @@ impl Lexer {
                 Token::Question
             }
 
+            Some('\'') => {
+                // Lifetime annotation (e.g., 'span, 'a, 'static)
+                self.read_lifetime()
+            }
+
             Some(_c) => {
                 // Unknown character - skip it and try next
                 self.advance();
-                self.next_token()
+                return self.next_token();
             }
-        }
+        };
+
+        PositionedToken::new(token, start_span)
     }
 
-    /// Tokenize entire input into a vector
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    /// Tokenize entire input into a vector of positioned tokens
+    pub fn tokenize_positioned(&mut self) -> Vec<PositionedToken> {
         let mut tokens = Vec::new();
 
         loop {
-            let token = self.next_token();
-            let is_eof = matches!(token, Token::Eof);
-            tokens.push(token);
+            let positioned_token = self.next_token();
+            let is_eof = matches!(positioned_token.token, Token::Eof);
+            tokens.push(positioned_token);
 
             if is_eof {
                 break;
@@ -552,6 +590,11 @@ impl Lexer {
         }
 
         tokens
+    }
+
+    /// Tokenize entire input into a vector (backward compatible - no positions)
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        self.tokenize_positioned().into_iter().map(|pt| pt.token).collect()
     }
 }
 
@@ -702,5 +745,29 @@ bind x to 42  # inline comment
         assert_eq!(tokens[2], Token::Ident("x".to_string()));
         assert_eq!(tokens[3], Token::To);
         assert_eq!(tokens[4], Token::Number(42.0));
+    }
+
+    #[test]
+    fn test_positioned_tokens() {
+        let source = "bind x to 42";
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize_positioned();
+
+        // Check that tokens have positions
+        assert_eq!(tokens[0].token, Token::Bind);
+        assert_eq!(tokens[0].span.line, 1);
+        assert_eq!(tokens[0].span.column, 1);
+
+        assert_eq!(tokens[1].token, Token::Ident("x".to_string()));
+        assert_eq!(tokens[1].span.line, 1);
+        assert_eq!(tokens[1].span.column, 6);
+
+        assert_eq!(tokens[2].token, Token::To);
+        assert_eq!(tokens[2].span.line, 1);
+        assert_eq!(tokens[2].span.column, 8);
+
+        assert_eq!(tokens[3].token, Token::Number(42.0));
+        assert_eq!(tokens[3].span.line, 1);
+        assert_eq!(tokens[3].span.column, 11);
     }
 }

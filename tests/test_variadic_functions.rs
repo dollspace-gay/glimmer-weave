@@ -5,7 +5,7 @@ use glimmer_weave::*;
 
 fn run_program(source: &str) -> Result<eval::Value, eval::RuntimeError> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().map_err(|e| {
         eval::RuntimeError::Custom(format!("Parse error: {:?}", e))

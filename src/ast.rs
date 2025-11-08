@@ -8,6 +8,52 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use crate::source_location::SourceSpan;
+
+/// Borrow mode for parameters and types
+///
+/// Specifies how ownership is handled when passing values or accessing data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BorrowMode {
+    /// Owned: Takes ownership (move semantics)
+    /// Example: `chant consume(data as List<Number>)`
+    Owned,
+
+    /// Borrowed: Shared/immutable borrow (read-only access)
+    /// Example: `chant read(borrow data as List<Number>)`
+    Borrowed,
+
+    /// BorrowedMut: Mutable borrow (exclusive write access)
+    /// Example: `chant modify(borrow mut data as List<Number>)`
+    BorrowedMut,
+}
+
+impl Default for BorrowMode {
+    fn default() -> Self {
+        BorrowMode::Owned
+    }
+}
+
+/// Lifetime annotation
+///
+/// Tracks how long a reference remains valid.
+/// Examples: 'span, 'a, 'static
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Lifetime {
+    pub name: String,
+}
+
+impl Lifetime {
+    /// Create a new lifetime annotation
+    pub fn new(name: impl Into<String>) -> Self {
+        Lifetime { name: name.into() }
+    }
+
+    /// The 'static lifetime (valid for entire program duration)
+    pub fn static_lifetime() -> Self {
+        Lifetime { name: "static".to_string() }
+    }
+}
 
 /// Type annotation in the AST (syntactic representation)
 ///
@@ -37,6 +83,13 @@ pub enum TypeAnnotation {
     },
     /// Optional/nullable type: `Number?` (future feature)
     Optional(Box<TypeAnnotation>),
+    /// Borrowed type: `borrow T`, `borrow mut T`, `borrow 'a T`
+    /// Represents a reference to a value (immutable or mutable)
+    Borrowed {
+        lifetime: Option<Lifetime>,
+        inner: Box<TypeAnnotation>,
+        mutable: bool,
+    },
 }
 
 /// Function parameter with optional type annotation
@@ -48,6 +101,10 @@ pub struct Parameter {
     /// Syntax: `...rest` or `...args`
     /// Must be the last parameter if present
     pub is_variadic: bool,
+    /// Ownership mode: Owned, Borrowed, or BorrowedMut
+    pub borrow_mode: BorrowMode,
+    /// Optional lifetime annotation for borrowed parameters
+    pub lifetime: Option<Lifetime>,
 }
 
 /// Struct field definition
@@ -89,17 +146,57 @@ pub struct TraitMethod {
 impl Parameter {
     /// Create a parameter without type annotation (for backward compatibility)
     pub fn untyped(name: String) -> Self {
-        Parameter { name, typ: None, is_variadic: false }
+        Parameter {
+            name,
+            typ: None,
+            is_variadic: false,
+            borrow_mode: BorrowMode::Owned,
+            lifetime: None,
+        }
     }
 
     /// Create a parameter with type annotation
     pub fn typed(name: String, typ: TypeAnnotation) -> Self {
-        Parameter { name, typ: Some(typ), is_variadic: false }
+        Parameter {
+            name,
+            typ: Some(typ),
+            is_variadic: false,
+            borrow_mode: BorrowMode::Owned,
+            lifetime: None,
+        }
     }
 
     /// Create a variadic parameter
     pub fn variadic(name: String, typ: Option<TypeAnnotation>) -> Self {
-        Parameter { name, typ, is_variadic: true }
+        Parameter {
+            name,
+            typ,
+            is_variadic: true,
+            borrow_mode: BorrowMode::Owned,
+            lifetime: None,
+        }
+    }
+
+    /// Create an immutably borrowed parameter: `borrow x as T` or `borrow 'a x as T`
+    pub fn borrowed(name: String, typ: TypeAnnotation, lifetime: Option<Lifetime>) -> Self {
+        Parameter {
+            name,
+            typ: Some(typ),
+            is_variadic: false,
+            borrow_mode: BorrowMode::Borrowed,
+            lifetime,
+        }
+    }
+
+    /// Create a mutably borrowed parameter: `borrow mut x as T` or `borrow 'a mut x as T`
+    pub fn borrowed_mut(name: String, typ: TypeAnnotation, lifetime: Option<Lifetime>) -> Self {
+        Parameter {
+            name,
+            typ: Some(typ),
+            is_variadic: false,
+            borrow_mode: BorrowMode::BorrowedMut,
+            lifetime,
+        }
     }
 }
 
@@ -113,6 +210,7 @@ pub enum AstNode {
         name: String,
         typ: Option<TypeAnnotation>,
         value: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Mutable variable: `weave counter as 0` or `weave counter: Number as 0`
@@ -120,12 +218,14 @@ pub enum AstNode {
         name: String,
         typ: Option<TypeAnnotation>,
         value: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Mutation: `set counter to 10`
     SetStmt {
         name: String,
         value: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Conditional: `should x > 5 then ... otherwise ... end`
@@ -133,6 +233,7 @@ pub enum AstNode {
         condition: Box<AstNode>,
         then_branch: Vec<AstNode>,
         else_branch: Option<Vec<AstNode>>,
+        span: SourceSpan,
     },
 
     /// Bounded loop: `for each x in list then ... end`
@@ -140,23 +241,28 @@ pub enum AstNode {
         variable: String,
         iterable: Box<AstNode>,
         body: Vec<AstNode>,
+        span: SourceSpan,
     },
 
     /// Unbounded loop: `whilst condition then ... end`
     WhileStmt {
         condition: Box<AstNode>,
         body: Vec<AstNode>,
+        span: SourceSpan,
     },
 
     /// Function definition: `chant greet(name) then ... end`
     /// or with types: `chant factorial(n: Number) -> Number then ... end`
     /// or with generics: `chant identity<T>(x: T) -> T then ... end`
+    /// or with lifetimes: `chant process<'a>(borrow 'a data as List<T>) -> borrow 'a T then ... end`
     ChantDef {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T", "U"]
+        lifetime_params: Vec<Lifetime>,  // Lifetime parameters like ['a, 'b]
         params: Vec<Parameter>,
         return_type: Option<TypeAnnotation>,
         body: Vec<AstNode>,
+        span: SourceSpan,
     },
 
     /// Struct definition: `form Person with name as Text age as Number end`
@@ -165,6 +271,7 @@ pub enum AstNode {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T", "U"]
         fields: Vec<StructField>,
+        span: SourceSpan,
     },
 
     /// Enum definition: `variant Color then Red, Green, Blue end`
@@ -174,6 +281,7 @@ pub enum AstNode {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T"]
         variants: Vec<VariantCase>,
+        span: SourceSpan,
     },
 
     /// Trait definition: `aspect Display then chant show(self) -> Text end`
@@ -182,6 +290,7 @@ pub enum AstNode {
         name: String,
         type_params: Vec<String>,  // Generic type parameters like ["T"]
         methods: Vec<TraitMethod>,
+        span: SourceSpan,
     },
 
     /// Trait implementation: `embody Display for Number then chant show(self) -> Text then ... end end`
@@ -191,29 +300,34 @@ pub enum AstNode {
         type_args: Vec<TypeAnnotation>,  // Type arguments for generic traits
         target_type: TypeAnnotation,
         methods: Vec<AstNode>,  // ChantDef nodes
+        span: SourceSpan,
     },
 
     /// Return statement: `yield result`
     YieldStmt {
         value: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Pattern matching: `match x with when 1 then ... end`
     MatchStmt {
         value: Box<AstNode>,
         arms: Vec<MatchArm>,
+        span: SourceSpan,
     },
 
     /// Error handling: `attempt ... harmonize on Error then ... end`
     AttemptStmt {
         body: Vec<AstNode>,
         handlers: Vec<ErrorHandler>,
+        span: SourceSpan,
     },
 
     /// Capability request: `request VGA.write with justification "message"`
     RequestStmt {
         capability: Box<AstNode>,
         justification: String,
+        span: SourceSpan,
     },
 
     // === Module System ===
@@ -223,6 +337,7 @@ pub enum AstNode {
         name: String,
         body: Vec<AstNode>,
         exports: Vec<String>,  // Items listed in 'offer'
+        span: SourceSpan,
     },
 
     /// Import statement: `summon Math from "std/math.gw"`
@@ -232,47 +347,80 @@ pub enum AstNode {
         path: String,
         items: Option<Vec<String>>,  // None = import all (summon), Some = specific items (gather)
         alias: Option<String>,        // Optional 'as' alias
+        span: SourceSpan,
     },
 
     /// Export statement: `offer sqrt, pow`
     Export {
         items: Vec<String>,
+        span: SourceSpan,
     },
 
     // === Expressions ===
 
     /// Numeric literal: `42`, `3.14`
-    Number(f64),
+    Number {
+        value: f64,
+        span: SourceSpan,
+    },
 
     /// String literal: `"hello"`
-    Text(String),
+    Text {
+        value: String,
+        span: SourceSpan,
+    },
 
     /// Boolean literal: `true`, `false`
-    Truth(bool),
+    Truth {
+        value: bool,
+        span: SourceSpan,
+    },
 
     /// Null/void value: `nothing`
-    Nothing,
+    Nothing {
+        span: SourceSpan,
+    },
 
     /// Variable reference: `x`, `counter`
-    Ident(String),
+    Ident {
+        name: String,
+        span: SourceSpan,
+    },
 
     /// Triumph value: `Triumph(42)` (successful Outcome)
-    Triumph(Box<AstNode>),
+    Triumph {
+        value: Box<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Mishap value: `Mishap("error")` (failed Outcome)
-    Mishap(Box<AstNode>),
+    Mishap {
+        value: Box<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Present value: `Present(42)` (Maybe with value)
-    Present(Box<AstNode>),
+    Present {
+        value: Box<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Absent value: `Absent` (Maybe without value)
-    Absent,
+    Absent {
+        span: SourceSpan,
+    },
 
     /// List literal: `[1, 2, 3]`
-    List(Vec<AstNode>),
+    List {
+        elements: Vec<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Map literal: `{name: "Elara", age: 42}`
-    Map(Vec<(String, AstNode)>),
+    Map {
+        entries: Vec<(String, AstNode)>,
+        span: SourceSpan,
+    },
 
     /// Struct literal: `Person { name: "Alice", age: 30 }`
     /// or with type args: `Box<Number> { value: 42 }`
@@ -280,6 +428,7 @@ pub enum AstNode {
         struct_name: String,
         type_args: Vec<TypeAnnotation>,  // Type arguments for generic instantiation
         fields: Vec<(String, AstNode)>,
+        span: SourceSpan,
     },
 
     /// Binary operation: `x + y`, `a > b`
@@ -287,12 +436,14 @@ pub enum AstNode {
         left: Box<AstNode>,
         op: BinaryOperator,
         right: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Unary operation: `not x`, `-y`
     UnaryOp {
         op: UnaryOperator,
         operand: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Function call: `greet("Elara")`, `VGA.write("Hello")`
@@ -301,57 +452,75 @@ pub enum AstNode {
         callee: Box<AstNode>,
         type_args: Vec<TypeAnnotation>,  // Type arguments for generic function calls
         args: Vec<AstNode>,
+        span: SourceSpan,
     },
 
     /// Field access: `person.name`, `VGA.write`
     FieldAccess {
         object: Box<AstNode>,
         field: String,
+        span: SourceSpan,
     },
 
     /// Module-qualified access: `Math.sqrt`, `Collections.List`
     ModuleAccess {
         module: String,
         member: String,
+        span: SourceSpan,
     },
 
     /// Index access: `list[0]`
     IndexAccess {
         object: Box<AstNode>,
         index: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Range: `range(1, 10)`
     Range {
         start: Box<AstNode>,
         end: Box<AstNode>,
+        span: SourceSpan,
     },
 
     /// Pipeline: `x | filter by y > 5 | take 10`
     Pipeline {
         stages: Vec<AstNode>,
+        span: SourceSpan,
     },
 
     /// Query expression: `seek where essence is "Scroll"`
     SeekExpr {
         conditions: Vec<QueryCondition>,
+        span: SourceSpan,
     },
 
     /// Expression statement (for side effects)
-    ExprStmt(Box<AstNode>),
+    ExprStmt {
+        expr: Box<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Block of statements
-    Block(Vec<AstNode>),
+    Block {
+        statements: Vec<AstNode>,
+        span: SourceSpan,
+    },
 
     /// Break statement: exits innermost loop
-    Break,
+    Break {
+        span: SourceSpan,
+    },
 
     /// Continue statement: skip to next iteration of innermost loop
-    Continue,
+    Continue {
+        span: SourceSpan,
+    },
 
     /// Try operator: `expr?` - propagates Mishap errors, unwraps Triumph
     Try {
         expr: Box<AstNode>,
+        span: SourceSpan,
     },
 }
 
@@ -456,7 +625,7 @@ impl AstNode {
                 | AstNode::MatchStmt { .. }
                 | AstNode::AttemptStmt { .. }
                 | AstNode::RequestStmt { .. }
-                | AstNode::ExprStmt(_)
+                | AstNode::ExprStmt { .. }
         )
     }
 

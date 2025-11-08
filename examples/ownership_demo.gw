@@ -1,0 +1,290 @@
+# Glimmer-Weave Ownership and Borrowing Examples
+# This file demonstrates the ownership system design
+# NOTE: This is a DESIGN PREVIEW - ownership checking not yet implemented
+
+# Enable ownership checking (future feature)
+# enable ownership_checking
+
+# ============================================================================
+# Example 1: Basic Ownership and Move Semantics
+# ============================================================================
+
+VGA.write("=== Example 1: Basic Ownership ===")
+
+# Create owned value
+bind data to [1, 2, 3]
+VGA.write("Created data: " + to_text(data))
+
+# Move value (transfers ownership)
+bind moved_data to data
+VGA.write("Moved to moved_data: " + to_text(moved_data))
+
+# ERROR (when ownership checking enabled):
+# data.length()  # Value was moved out of 'data'
+
+# ============================================================================
+# Example 2: Shared Borrowing (Read-Only)
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 2: Shared Borrowing ===")
+
+chant print_length(borrow list as List<Number>) then
+    VGA.write("List length: " + to_text(list.length()))
+    # Cannot modify borrowed data
+    # list.push(4)  # ERROR: cannot mutate borrowed value
+end
+
+bind numbers to [10, 20, 30]
+print_length(borrow numbers)  # Borrow for reading
+VGA.write("Original still valid: " + to_text(numbers))
+
+# Multiple shared borrows are allowed
+bind ref1 to borrow numbers
+bind ref2 to borrow numbers
+VGA.write("Both refs valid: " + to_text(ref1.length()) + ", " + to_text(ref2.length()))
+
+# ============================================================================
+# Example 3: Mutable Borrowing (Exclusive Write)
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 3: Mutable Borrowing ===")
+
+chant double_values(borrow mut list as List<Number>) then
+    for each i in range(0, list.length()) then
+        set list[i] to list[i] * 2
+    end
+end
+
+weave mutable_nums as [1, 2, 3]
+VGA.write("Before: " + to_text(mutable_nums))
+
+double_values(borrow mut mutable_nums)  # Exclusive access
+VGA.write("After doubling: " + to_text(mutable_nums))
+
+# ERROR (when ownership checking enabled):
+# bind ref to borrow mutable_nums
+# bind mutref to borrow mut mutable_nums
+# Cannot have both shared and mutable borrows
+
+# ============================================================================
+# Example 4: Copy Types vs Move Types
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 4: Copy vs Move Types ===")
+
+# Numbers are Copy types (cheap to duplicate)
+bind x to 42
+bind y to x  # Copied, not moved
+VGA.write("Both valid: x=" + to_text(x) + ", y=" + to_text(y))
+
+# Lists are Move types (expensive to duplicate)
+bind list1 to [1, 2, 3]
+bind list2 to list1  # Moved, not copied
+# list1.length()     # ERROR: value was moved
+
+# Use replicate() for explicit copy
+bind list3 to [4, 5, 6]
+bind list4 to list3.replicate()  # Explicit deep copy
+list3.push(7)
+list4.push(8)
+VGA.write("Independent: list3=" + to_text(list3) + ", list4=" + to_text(list4))
+
+# ============================================================================
+# Example 5: Lifetimes in Function Returns
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 5: Lifetimes ===")
+
+# Return borrowed reference with same lifetime as input
+chant first_element<'span>(borrow 'span list as List<Number>) -> borrow 'span Number then
+    yield borrow list[0]
+end
+
+bind nums to [100, 200, 300]
+bind first to first_element(borrow nums)
+VGA.write("First element: " + to_text(first))
+# 'first' is valid as long as 'nums' is valid
+
+# ============================================================================
+# Example 6: Choosing Longest String
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 6: Multiple Lifetimes ===")
+
+# Both inputs have same lifetime, so output can be either
+chant longest<'span>(
+    borrow 'span first as Text,
+    borrow 'span second as Text
+) -> borrow 'span Text then
+    should first.length() > second.length() then
+        yield first
+    otherwise
+        yield second
+    end
+end
+
+bind s1 to "Hello"
+bind s2 to "World!"
+bind result to longest(borrow s1, borrow s2)
+VGA.write("Longest: " + result)
+
+# ============================================================================
+# Example 7: Struct with Borrowed Data
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 7: Struct with Borrows ===")
+
+# Struct holding borrowed slice of data
+form Slice<'span> with
+    data: borrow 'span List<Number>
+    start: Number
+    length: Number
+end
+
+chant make_slice<'span>(
+    borrow 'span list as List<Number>,
+    start as Number,
+    len as Number
+) -> Slice<'span> then
+    yield Slice {
+        data: borrow list,
+        start: start,
+        length: len
+    }
+end
+
+bind full_data to [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+bind slice to make_slice(borrow full_data, 2, 5)
+VGA.write("Slice created from index " + to_text(slice.start))
+# slice.data is valid as long as full_data is valid
+
+# ============================================================================
+# Example 8: Iterator Pattern with Borrows
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 8: Iterator Pattern ===")
+
+form Iter<'span> with
+    data: borrow 'span List<Number>
+    index: Number
+end
+
+# Create iterator that borrows from collection
+chant make_iter<'span>(borrow 'span list as List<Number>) -> Iter<'span> then
+    yield Iter {
+        data: borrow list,
+        index: 0
+    }
+end
+
+bind collection to [10, 20, 30, 40, 50]
+weave iter as make_iter(borrow collection)
+
+VGA.write("Iterating over borrowed data:")
+whilst iter.index < iter.data.length() then
+    VGA.write("  Item: " + to_text(iter.data[iter.index]))
+    set iter.index to iter.index + 1
+end
+
+# collection is still valid after iteration
+VGA.write("Original collection still accessible: " + to_text(collection))
+
+# ============================================================================
+# Example 9: Borrow Scope (Non-Lexical Lifetimes)
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 9: Borrow Scope ===")
+
+weave data to [1, 2, 3]
+
+# Shared borrow
+bind ref to borrow data
+VGA.write("Borrowed: " + to_text(ref.length()))
+# Last use of 'ref' is above
+
+# Borrow ends after last use, data can be mutated
+data.push(4)  # OK: ref is no longer active
+VGA.write("After mutation: " + to_text(data))
+
+# ============================================================================
+# Example 10: Common Ownership Patterns
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 10: Common Patterns ===")
+
+# Pattern 1: Take ownership and return new value
+chant transform(owned_list as List<Number>) -> List<Number> then
+    owned_list.push(999)
+    yield owned_list  # Transfer ownership to caller
+end
+
+bind original to [1, 2, 3]
+bind transformed to transform(original)  # 'original' moved
+VGA.write("Transformed: " + to_text(transformed))
+
+# Pattern 2: Borrow, process, return result
+chant sum(borrow numbers as List<Number>) -> Number then
+    bind total to 0
+    for each num in borrow numbers then
+        set total to total + num
+    end
+    yield total
+end
+
+bind values to [5, 10, 15, 20]
+bind total to sum(borrow values)
+VGA.write("Sum: " + to_text(total))
+VGA.write("Original unchanged: " + to_text(values))
+
+# Pattern 3: Mutate in place via mutable borrow
+chant add_prefix(borrow mut list as List<Number>, prefix as Number) then
+    for each i in range(0, list.length()) then
+        set list[i] to prefix + list[i]
+    end
+end
+
+weave prefixed to [1, 2, 3]
+add_prefix(borrow mut prefixed, 100)
+VGA.write("After prefix: " + to_text(prefixed))
+
+# ============================================================================
+# Example 11: Error Cases (when ownership checking enabled)
+# ============================================================================
+
+VGA.write("")
+VGA.write("=== Example 11: Error Cases (commented) ===")
+
+# ERROR 1: Use after move
+# bind a to [1, 2, 3]
+# bind b to a
+# a.length()  # Error: value moved to 'b'
+
+# ERROR 2: Mutate while borrowed
+# bind x to [1, 2, 3]
+# bind ref to borrow x
+# x.push(4)  # Error: cannot mutate while borrowed
+
+# ERROR 3: Mutable + shared borrow
+# bind y to [1, 2, 3]
+# bind sref to borrow y
+# bind mref to borrow mut y  # Error: already borrowed as shared
+
+# ERROR 4: Borrow outlives owner
+# bind dangling_ref
+# should true then
+#     bind temp to [1, 2, 3]
+#     dangling_ref to borrow temp
+# end
+# dangling_ref.length()  # Error: 'temp' dropped at end of block
+
+VGA.write("All examples complete!")
+VGA.write("(Ownership checking will enforce these rules when enabled)")

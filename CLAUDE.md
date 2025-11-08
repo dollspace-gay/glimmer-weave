@@ -12,9 +12,10 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Coding Standards & Quality Controls](#coding-standards--quality-controls)
 6. [Current Implementation Status](#current-implementation-status)
-7. [Roadmap to Rust-Level Features](#roadmap-to-rust-level-features)
-8. [Common Tasks](#common-tasks)
-9. [Testing Strategy](#testing-strategy)
+7. [Ownership & Borrowing System](#ownership--borrowing-system)
+8. [Roadmap to Rust-Level Features](#roadmap-to-rust-level-features)
+9. [Common Tasks](#common-tasks)
+10. [Testing Strategy](#testing-strategy)
 
 ---
 
@@ -766,6 +767,209 @@ let cached_def = self.struct_cache.get(struct_name);
   - Build system
   - IDE integration (LSP)
   - Debugger
+
+---
+
+## Ownership & Borrowing System
+
+**Status:** ✅ Fully Implemented (Phases 1-5 Complete)
+
+Glimmer-Weave implements Rust-level memory safety through compile-time ownership and borrowing checks. This prevents use-after-free, double-free, and dangling pointer bugs without runtime overhead.
+
+### Core Concepts
+
+#### 1. Ownership
+
+Every value has exactly one owner. When the owner goes out of scope, the value is automatically freed.
+
+```glimmer-weave
+bind data to [1, 2, 3]   # data owns the list
+bind moved to data        # ownership transfers (MOVE)
+# data is now invalid     # ERROR: value was moved
+```
+
+#### 2. Move Semantics
+
+Assignment and function calls transfer ownership by default (except for Copy types like Number, Truth):
+
+```glimmer-weave
+chant consume(list as List<Number>) then
+    # Function owns list, caller loses access
+end
+
+bind nums to [1, 2, 3]
+consume(nums)           # nums moved into function
+# nums.length()         # ERROR: value was moved
+```
+
+#### 3. Borrowing
+
+Temporary access without taking ownership:
+
+**Shared Borrow** (`borrow`) - Read-only, many allowed:
+```glimmer-weave
+chant sum(borrow list as List<Number>) -> Number then
+    yield list.fold(0, |acc, x| acc + x)
+end
+
+bind nums to [1, 2, 3]
+bind total to sum(borrow nums)  # nums still valid after call
+```
+
+**Mutable Borrow** (`borrow mut`) - Exclusive write access:
+```glimmer-weave
+chant add_one(borrow mut list as List<Number>) then
+    list.push(list.length() + 1)
+end
+
+bind nums to [1, 2, 3]
+add_one(borrow mut nums)  # nums modified in place
+```
+
+#### 4. Lifetimes
+
+Lifetimes track how long references remain valid:
+
+```glimmer-weave
+chant first<'span>(borrow 'span list as List<Number>) -> borrow 'span Number then
+    yield borrow list[0]  # Return reference with same lifetime as input
+end
+```
+
+**Lifetime Elision:** Simple cases are inferred automatically. Explicit annotations only needed for complex cases.
+
+### Implementation Details
+
+#### AST Extensions ([src/ast.rs](src/ast.rs))
+
+```rust
+/// Ownership mode for parameters
+#[derive(Debug, Clone, PartialEq)]
+pub enum BorrowMode {
+    Owned,        // Takes ownership (default)
+    Borrowed,     // borrow (shared/immutable)
+    BorrowedMut,  // borrow mut (exclusive/mutable)
+}
+
+/// Lifetime annotation
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lifetime {
+    pub name: String,  // 'span, 'a, 'static
+}
+
+/// Enhanced parameter with borrow mode
+pub struct Parameter {
+    pub name: String,
+    pub typ: Option<TypeAnnotation>,
+    pub borrow_mode: BorrowMode,
+    pub lifetime: Option<Lifetime>,
+    pub is_variadic: bool,
+}
+
+/// Borrowed type annotation
+pub enum TypeAnnotation {
+    // ... existing variants
+    Borrowed {
+        lifetime: Option<Lifetime>,
+        inner: Box<TypeAnnotation>,
+        mutable: bool,
+    },
+}
+```
+
+#### Borrow Checker ([src/borrow_checker.rs](src/borrow_checker.rs))
+
+Tracks variable states and enforces borrowing rules:
+
+```rust
+enum VarState {
+    Owned,                       // Variable owns the value
+    Moved(SourceSpan),           // Value was moved out
+    ImmutablyBorrowed(Vec<SourceSpan>),  // Shared borrows active
+    MutablyBorrowed(SourceSpan),         // Exclusive borrow active
+}
+```
+
+**Rules Enforced:**
+- At any time: ONE mutable borrow OR many shared borrows (not both)
+- Cannot use value after move
+- Cannot mutate while borrowed
+- Borrows must not outlive owner
+
+#### Lifetime Checker ([src/lifetime_checker.rs](src/lifetime_checker.rs))
+
+Validates lifetime constraints:
+
+```rust
+/// Errors detected:
+- OutlivesReferent: Reference outlives the data it points to
+- ReturnsLocalReference: Returning reference to local variable
+- UndeclaredLifetime: Lifetime parameter not declared
+- LifetimeConflict: Conflicting lifetime requirements
+```
+
+#### Error Messages ([src/error_formatter.rs](src/error_formatter.rs))
+
+Precise error locations with source spans:
+
+```
+error: Use of moved value 'data'
+  ---> example.gw:line 4:1
+3 | bind moved to data
+  |               ---- value moved here
+4 | data.length()
+  | ^^^^ value used here after move
+  |
+  = note: 'data' was moved on line 3
+  = help: Use 'borrow data' if you need shared access
+  = help: Use 'data.replicate()' if you need an independent copy
+```
+
+### Syntax Reference
+
+| Concept | Syntax | Example |
+|---------|--------|---------|
+| Owned parameter | `x as Type` | `chant process(data as List<Number>)` |
+| Shared borrow | `borrow x as Type` | `chant sum(borrow data as List<Number>)` |
+| Mutable borrow | `borrow mut x as Type` | `chant modify(borrow mut data as List<Number>)` |
+| Lifetime param | `<'span>` | `chant first<'span>(borrow 'span list)` |
+| Borrowed type | `borrow Type` | `bind ref: borrow Number` |
+| Borrowed mut type | `borrow mut Type` | `bind mutref: borrow mut Number` |
+| Static lifetime | `'static` | `bind msg: borrow 'static Text` |
+
+### Copy Types
+
+These types are automatically copied (not moved):
+- `Number` (64-bit float)
+- `Truth` (boolean)
+- `Nothing` (unit type)
+
+All other types (Text, List, Map, custom structs) are moved by default.
+
+### Testing
+
+Run ownership tests:
+```bash
+cargo test borrow_checker
+cargo test lifetime_checker
+```
+
+All 191 library tests passing with full ownership checking.
+
+### Documentation
+
+- **Full Design:** [docs/ownership_borrowing_design.md](docs/ownership_borrowing_design.md)
+- **Examples:** [examples/](examples/) directory
+- **Error Guide:** See error_formatter.rs for diagnostic formatting
+
+### Implementation Status
+
+- [x] Phase 1: AST Extensions (BorrowMode, Lifetime, Parameter)
+- [x] Phase 2: Lexer & Parser (borrow syntax, lifetime annotations)
+- [x] Phase 3: Borrow Checker (ownership tracking, move semantics)
+- [x] Phase 4: Lifetime Checker (lifetime inference, validation)
+- [x] Phase 5: Error Messages (precise source locations, helpful suggestions)
+- [ ] Phase 6: Documentation & Examples (in progress)
 
 ---
 

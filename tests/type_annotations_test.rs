@@ -17,7 +17,7 @@ fn test_typed_bind_statement() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -41,7 +41,7 @@ fn test_typed_weave_statement() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -61,7 +61,7 @@ fn test_typed_function_simple() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -85,7 +85,7 @@ fn test_typed_function_with_recursion() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -120,7 +120,7 @@ fn test_mixed_typed_untyped_code() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -150,7 +150,7 @@ fn test_semantic_analysis_type_checking() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
 
@@ -171,7 +171,7 @@ fn test_semantic_analysis_type_error() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
 
@@ -197,7 +197,7 @@ fn test_typed_list_annotation() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -218,7 +218,7 @@ fn test_function_without_return_type() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -239,7 +239,7 @@ fn test_partial_parameter_typing() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();
@@ -274,7 +274,7 @@ fn test_typed_fibonacci() {
     "#;
 
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
     let mut evaluator = Evaluator::new();

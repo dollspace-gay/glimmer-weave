@@ -16,7 +16,7 @@ fn benchmark(name: &str, source: &str, iterations: usize) {
 
     // Parse once (shared by both approaches)
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize_positioned();
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Parse failed");
 

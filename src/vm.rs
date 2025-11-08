@@ -626,7 +626,7 @@ mod tests {
 
     fn run_source(source: &str) -> VmResult<Value> {
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize_positioned();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Parse failed");
         let chunk = compile(&ast).expect("Compile failed");

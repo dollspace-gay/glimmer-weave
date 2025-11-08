@@ -204,13 +204,13 @@ impl TypeInference {
 
         match node {
             // Literals have known types
-            AstNode::Number(_) => Ok(Type::Number),
-            AstNode::Text(_) => Ok(Type::Text),
-            AstNode::Truth(_) => Ok(Type::Truth),
-            AstNode::Nothing => Ok(Type::Nothing),
+            AstNode::Number { .. } => Ok(Type::Number),
+            AstNode::Text { .. } => Ok(Type::Text),
+            AstNode::Truth { .. } => Ok(Type::Truth),
+            AstNode::Nothing { .. } => Ok(Type::Nothing),
 
             // Variables lookup from environment
-            AstNode::Ident(name) => {
+            AstNode::Ident { name, .. } => {
                 if let Some(ty) = environment.get(name) {
                     Ok(ty.clone())
                 } else {
@@ -222,7 +222,7 @@ impl TypeInference {
             }
 
             // Binary operations
-            AstNode::BinaryOp { left, op, right } => {
+            AstNode::BinaryOp { left, op, right, .. } => {
                 let left_ty = self.generate_constraints_internal(left, constraints, environment)?;
                 let right_ty = self.generate_constraints_internal(right, constraints, environment)?;
 
@@ -252,7 +252,7 @@ impl TypeInference {
             }
 
             // Unary operations
-            AstNode::UnaryOp { op, operand } => {
+            AstNode::UnaryOp { op, operand, .. } => {
                 let expr_ty = self.generate_constraints_internal(operand, constraints, environment)?;
                 match op {
                     UnaryOperator::Negate => {
@@ -267,21 +267,21 @@ impl TypeInference {
             }
 
             // Variable binding
-            AstNode::BindStmt { name, value, .. } => {
+            AstNode::BindStmt { name, value, typ: _, .. } => {
                 let value_ty = self.generate_constraints_internal(value, constraints, environment)?;
                 environment.insert(name.clone(), value_ty);
                 Ok(Type::Nothing)
             }
 
             // Mutable variable
-            AstNode::WeaveStmt { name, value, .. } => {
+            AstNode::WeaveStmt { name, value, typ: _, .. } => {
                 let value_ty = self.generate_constraints_internal(value, constraints, environment)?;
                 environment.insert(name.clone(), value_ty);
                 Ok(Type::Nothing)
             }
 
             // Assignment
-            AstNode::SetStmt { name, value } => {
+            AstNode::SetStmt { name, value, .. } => {
                 let value_ty = self.generate_constraints_internal(value, constraints, environment)?;
                 if let Some(var_ty) = environment.get(name) {
                     constraints.push((var_ty.clone(), value_ty));
@@ -292,7 +292,7 @@ impl TypeInference {
             }
 
             // Lists
-            AstNode::List(elements) => {
+            AstNode::List { elements, .. } => {
                 if elements.is_empty() {
                     let tv_id = self.fresh_var();
                     Ok(Type::List(Box::new(Type::TypeParam(tv_id.name().to_string()))))
@@ -307,7 +307,7 @@ impl TypeInference {
             }
 
             // Blocks
-            AstNode::Block(statements) => {
+            AstNode::Block { statements, .. } => {
                 let mut last_ty = Type::Nothing;
                 for stmt in statements {
                     last_ty = self.generate_constraints_internal(stmt, constraints, environment)?;
@@ -316,7 +316,7 @@ impl TypeInference {
             }
 
             // Conditionals
-            AstNode::IfStmt { condition, then_branch, else_branch } => {
+            AstNode::IfStmt { condition, then_branch, else_branch, .. } => {
                 let cond_ty = self.generate_constraints_internal(condition, constraints, environment)?;
                 constraints.push((cond_ty, Type::Truth));
 

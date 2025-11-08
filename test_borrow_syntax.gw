@@ -1,0 +1,33 @@
+# Test borrow syntax parsing
+# This file tests that the lexer and parser can handle the new borrow syntax
+
+# Test 1: Function with borrowed parameter
+chant print_value(borrow x as Number) then
+    VGA.write(to_text(x))
+end
+
+# Test 2: Function with mutable borrowed parameter
+chant increment(borrow mut counter as Number) then
+    set counter to counter + 1
+end
+
+# Test 3: Function with lifetime parameter
+chant first_element<'span>(borrow 'span list as List<Number>) then
+    yield list[0]
+end
+
+# Test 4: Function with multiple lifetimes and borrow modes
+chant longest<'span>(borrow 'span first as Text, borrow 'span second as Text) then
+    should first.length() > second.length() then
+        yield first
+    otherwise
+        yield second
+    end
+end
+
+# Test 5: Function with both type and lifetime parameters
+chant identity<'a, T>(borrow 'a value as T) as T then
+    yield value
+end
+
+VGA.write("Borrow syntax tests complete!")

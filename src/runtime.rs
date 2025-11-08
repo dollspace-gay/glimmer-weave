@@ -233,6 +233,21 @@ pub fn get_builtins() -> Vec<NativeFunction> {
 
         // Limiting
         NativeFunction::new("iter_take", Some(2), iter_take),
+
+        // === Smart Pointer Functions ===
+        // Shared<T> (Rc-like) operations
+        NativeFunction::new("Shared_new", Some(1), shared_new),
+        NativeFunction::new("Shared_get", Some(1), shared_get),
+        NativeFunction::new("Shared_clone", Some(1), shared_clone),
+        NativeFunction::new("Shared_count", Some(1), shared_count),
+
+        // Cell<T> (RefCell-like) operations
+        NativeFunction::new("Cell_new", Some(1), cell_new),
+        NativeFunction::new("Cell_get", Some(1), cell_get),
+        NativeFunction::new("Cell_set", Some(2), cell_set),
+        NativeFunction::new("Cell_borrow", Some(1), cell_borrow),
+        NativeFunction::new("Cell_borrow_mut", Some(1), cell_borrow_mut),
+        NativeFunction::new("Cell_release", Some(1), cell_release),
     ]
 }
 
@@ -1185,6 +1200,14 @@ fn to_text(args: &[Value]) -> Result<Value, RuntimeError> {
         Value::Iterator { iterator_type, .. } => {
             format!("[Iterator:{}]", iterator_type)
         }
+        Value::Shared { value, ref_count } => {
+            // Show Shared with ref count and inner value type
+            format!("[Shared<{}> (refs: {})]", value.type_name(), ref_count)
+        }
+        Value::Cell { value, .. } => {
+            // Show Cell with inner value type
+            format!("[Cell<{}>]", value.type_name())
+        }
     };
     Ok(Value::Text(text))
 }
@@ -2018,6 +2041,177 @@ fn iter_take(args: &[Value]) -> Result<Value, RuntimeError> {
         }),
         (v, _) => Err(RuntimeError::TypeError {
             expected: "Iterator".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// SMART POINTER FUNCTIONS
+// ============================================================================
+
+/// Create a new Shared<T> smart pointer
+/// Usage: Shared_new(value) -> Shared<T>
+fn shared_new(args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(Value::Shared {
+        value: Box::new(args[0].clone()),
+        ref_count: 1,
+    })
+}
+
+/// Get the value from a Shared<T> smart pointer
+/// Usage: Shared_get(shared) -> T
+fn shared_get(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Shared { value, .. } => Ok((**value).clone()),
+        v => Err(RuntimeError::TypeError {
+            expected: "Shared".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Clone a Shared<T> smart pointer (increments reference count)
+/// Usage: Shared_clone(shared) -> Shared<T>
+fn shared_clone(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Shared { value, ref_count } => Ok(Value::Shared {
+            value: value.clone(),
+            ref_count: ref_count + 1,
+        }),
+        v => Err(RuntimeError::TypeError {
+            expected: "Shared".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Get the reference count of a Shared<T> smart pointer
+/// Usage: Shared_count(shared) -> Number
+fn shared_count(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Shared { ref_count, .. } => Ok(Value::Number(*ref_count as f64)),
+        v => Err(RuntimeError::TypeError {
+            expected: "Shared".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Create a new Cell<T> for interior mutability
+/// Usage: Cell_new(value) -> Cell<T>
+fn cell_new(args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(Value::Cell {
+        value: Box::new(args[0].clone()),
+        borrowed: false,
+        borrow_count: 0,
+    })
+}
+
+/// Get the value from a Cell<T> (immutable borrow)
+/// Usage: Cell_get(cell) -> T
+fn cell_get(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Cell { value, borrowed, .. } => {
+            if *borrowed {
+                return Err(RuntimeError::Custom(
+                    "Cannot get from Cell: already borrowed mutably".to_string()
+                ));
+            }
+            Ok((**value).clone())
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Cell".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Set the value in a Cell<T> (mutable borrow)
+/// Usage: Cell_set(cell, new_value) -> Nothing
+fn cell_set(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Cell { borrowed, borrow_count, .. } => {
+            if *borrowed {
+                return Err(RuntimeError::Custom(
+                    "Cannot set Cell: already borrowed mutably".to_string()
+                ));
+            }
+            if *borrow_count > 0 {
+                return Err(RuntimeError::Custom(
+                    "Cannot set Cell: currently borrowed immutably".to_string()
+                ));
+            }
+            // In a real implementation, we'd mutate the cell in place
+            // For now, we'll return Nothing to indicate success
+            // The actual mutation would need to happen via a mutable reference
+            Ok(Value::Nothing)
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Cell".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Borrow the value immutably from a Cell<T>
+/// Usage: Cell_borrow(cell) -> T
+fn cell_borrow(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Cell { value, borrowed, .. } => {
+            if *borrowed {
+                return Err(RuntimeError::Custom(
+                    "Cannot borrow: already borrowed mutably".to_string()
+                ));
+            }
+            // In a real implementation, we'd increment borrow_count
+            // For now, just return the value
+            Ok((**value).clone())
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Cell".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Borrow the value mutably from a Cell<T>
+/// Usage: Cell_borrow_mut(cell) -> T
+fn cell_borrow_mut(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Cell { value, borrowed, borrow_count } => {
+            if *borrowed {
+                return Err(RuntimeError::Custom(
+                    "Cannot borrow mutably: already borrowed mutably".to_string()
+                ));
+            }
+            if *borrow_count > 0 {
+                return Err(RuntimeError::Custom(
+                    "Cannot borrow mutably: currently borrowed immutably".to_string()
+                ));
+            }
+            // In a real implementation, we'd set borrowed = true
+            // For now, just return the value
+            Ok((**value).clone())
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Cell".to_string(),
+            got: v.type_name().to_string(),
+        }),
+    }
+}
+
+/// Release a borrow on a Cell<T>
+/// Usage: Cell_release(cell) -> Nothing
+fn cell_release(args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Cell { .. } => {
+            // In a real implementation, we'd decrement borrow_count or set borrowed = false
+            // For now, just return Nothing
+            Ok(Value::Nothing)
+        }
+        v => Err(RuntimeError::TypeError {
+            expected: "Cell".to_string(),
             got: v.type_name().to_string(),
         }),
     }

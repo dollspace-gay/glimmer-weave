@@ -100,6 +100,19 @@ pub enum Value {
         iterator_type: String,  // "List", "Range", "Map", "Filter", etc.
         state: Box<IteratorState>,
     },
+    /// Shared - Reference-counted smart pointer for shared ownership (Rc<T> equivalent)
+    /// Allows multiple owners of the same data with automatic cleanup
+    Shared {
+        value: Box<Value>,
+        ref_count: usize,  // For tracking (simplified - real Rc uses heap allocation)
+    },
+    /// Cell - Runtime-checked mutable borrow for interior mutability (RefCell<T> equivalent)
+    /// Allows mutation of data even when there are immutable references
+    Cell {
+        value: Box<Value>,
+        borrowed: bool,  // true if currently borrowed mutably
+        borrow_count: usize,  // Number of immutable borrows
+    },
 }
 
 /// Iterator state - tracks position and remaining elements
@@ -169,6 +182,8 @@ impl Value {
             Value::VariantValue { variant_name, .. } => variant_name.as_str(),
             Value::VariantConstructor { variant_name, .. } => variant_name.as_str(),
             Value::Iterator { iterator_type, .. } => iterator_type.as_str(),
+            Value::Shared { .. } => "Shared",
+            Value::Cell { .. } => "Cell",
         }
     }
 }

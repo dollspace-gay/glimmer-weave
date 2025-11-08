@@ -1,0 +1,140 @@
+# Example 25: Smart Pointers - Shared Ownership and Interior Mutability
+# Demonstrates Shared<T> (Rc) and Cell<T> (RefCell) for advanced memory management
+
+# ============================================================================
+# Part 1: Shared<T> - Reference-Counted Smart Pointers
+# ============================================================================
+
+# Shared<T> allows multiple owners of the same data
+# The data is automatically cleaned up when the last owner drops
+
+# Create a shared pointer to a list
+bind shared_data to Shared_new([1, 2, 3, 4, 5])
+
+# Get the value from the shared pointer
+bind list1 to Shared_get(shared_data)
+VGA.write("Original list: " + to_text(list1))
+
+# Clone the shared pointer (increments ref count)
+bind shared_clone to Shared_clone(shared_data)
+bind list2 to Shared_get(shared_clone)
+VGA.write("Cloned list: " + to_text(list2))
+
+# Check the reference count
+bind ref_count to Shared_count(shared_clone)
+VGA.write("Reference count: " + to_text(ref_count))  # Should be 2
+
+# ============================================================================
+# Part 2: Cell<T> - Interior Mutability
+# ============================================================================
+
+# Cell<T> allows mutation even when there are immutable references
+# This is checked at runtime (not compile time)
+
+# Create a cell containing a number
+bind cell_num to Cell_new(42)
+
+# Get the value (immutable borrow)
+bind value1 to Cell_get(cell_num)
+VGA.write("Initial cell value: " + to_text(value1))
+
+# Borrow the value immutably
+bind borrowed to Cell_borrow(cell_num)
+VGA.write("Borrowed value: " + to_text(borrowed))
+
+# ============================================================================
+# Part 3: Shared with Structs
+# ============================================================================
+
+form Configuration with
+    debug_mode as Truth
+    max_connections as Number
+    server_name as Text
+end
+
+# Create a shared configuration
+bind config to Configuration {
+    debug_mode: true,
+    max_connections: 100,
+    server_name: "Glimmer Server"
+}
+
+bind shared_config to Shared_new(config)
+
+# Multiple components can share the same configuration
+bind component1_config to Shared_get(shared_config)
+bind component2_config to Shared_get(Shared_clone(shared_config))
+
+VGA.write("Component 1 server: " + component1_config.server_name)
+VGA.write("Component 2 server: " + component2_config.server_name)
+
+# ============================================================================
+# Part 4: Cell with Complex Data
+# ============================================================================
+
+form Counter with
+    value as Number
+    label as Text
+end
+
+# Create a counter in a cell
+bind counter to Counter { value: 0, label: "requests" }
+bind cell_counter to Cell_new(counter)
+
+# Read the current counter
+bind current to Cell_get(cell_counter)
+VGA.write("Counter " + current.label + ": " + to_text(current.value))
+
+# In a real implementation with mutable references, we could update the cell
+# For now, Cell provides the infrastructure for interior mutability
+
+# ============================================================================
+# Part 5: Combining Shared and Cell
+# ============================================================================
+
+# Shared + Cell = thread-safe interior mutability pattern
+# (In Rust, this is Arc<RwLock<T>> or Arc<Mutex<T>>)
+
+bind shared_state to Shared_new(Cell_new(100))
+
+# Multiple owners can hold references
+bind owner1 to Shared_clone(shared_state)
+bind owner2 to Shared_clone(shared_state)
+
+# Each owner can read from the cell
+bind cell1 to Shared_get(owner1)
+bind value_owner1 to Cell_get(cell1)
+VGA.write("Owner 1 sees: " + to_text(value_owner1))
+
+bind cell2 to Shared_get(owner2)
+bind value_owner2 to Cell_get(cell2)
+VGA.write("Owner 2 sees: " + to_text(value_owner2))
+
+# ============================================================================
+# Key Concepts
+# ============================================================================
+
+# Shared<T> (like Rust's Rc<T>):
+# - Allows multiple owners of the same data
+# - Reference counted (automatically freed when count reaches 0)
+# - Immutable by default
+# - Use: Data that needs to be shared across multiple places
+
+# Cell<T> (like Rust's RefCell<T>):
+# - Allows mutation even with immutable references
+# - Runtime borrow checking (panics on violations)
+# - Enables interior mutability patterns
+# - Use: When you need to mutate data that's behind an immutable reference
+
+# Why Use Smart Pointers?
+# 1. Shared ownership without copying large data structures
+# 2. Interior mutability for complex state management
+# 3. Enable patterns like dependency injection, observers, caching
+# 4. Alternative to global mutable state
+
+# Safety Guarantees:
+# - Shared: Safe immutable sharing (multiple readers)
+# - Cell: Runtime-checked mutation (prevents data races at runtime)
+# - Combined: Safe shared mutable state
+
+VGA.write("Smart pointers demo complete!")

@@ -76,6 +76,11 @@ pub mod source_location;
 pub mod error_formatter;
 pub mod native_runtime;
 pub mod module_resolver;
+pub mod symbol_table;
+
+// LSP server (only available with lsp feature)
+#[cfg(feature = "lsp")]
+pub mod lsp;
 
 // Native allocator FFI (only available when compiled with GNU assembler)
 #[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]

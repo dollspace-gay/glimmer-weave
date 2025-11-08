@@ -9,7 +9,16 @@
       "Bash(./debug_29.exe)",
       "Bash(./debug_demo.exe:*)",
       "Bash(cargo clippy:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(bd list:*)",
+      "Bash(bd show:*)",
+      "Bash(bd update:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(bd create:*)",
+      "Bash(bd dep add:*)",
+      "Bash(bd close:*)"
     ],
     "deny": [],
     "ask": []
